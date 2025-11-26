@@ -306,8 +306,9 @@ function initializeConfirmedShiftSheet() {
 
   if (sheet.getLastRow() === 0) {
     const headers = [
-      '確定シフトID', '氏名', 'グループ', '日付', 'シフト名',
-      '開始時間', '終了時間', '登録日時', 'カレンダーイベントID'
+      '確定シフトID', '氏名', 'グループ', 'シフト名',
+      '勤務開始日', '開始時間', '勤務終了日', '終了時間',
+      '登録日時', 'カレンダーイベントID'
     ];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#fce5cd');
@@ -323,22 +324,23 @@ function saveConfirmedShift(shiftData) {
     const sheet = initializeConfirmedShiftSheet();
     const timestamp = new Date();
 
-    const shiftId = `CONFIRMED_${shiftData['氏名']}_${Utilities.formatDate(shiftData['日付'], Session.getScriptTimeZone(), 'yyyyMMdd')}_${timestamp.getTime()}`;
+    const shiftId = `CONFIRMED_${shiftData['氏名']}_${Utilities.formatDate(shiftData['勤務開始日'], Session.getScriptTimeZone(), 'yyyyMMdd')}_${timestamp.getTime()}`;
 
     const rowData = [
       shiftId,
       shiftData['氏名'],
       shiftData['グループ'],
-      shiftData['日付'],
       shiftData['シフト名'],
+      shiftData['勤務開始日'],
       shiftData['開始時間'],
+      shiftData['勤務終了日'],
       shiftData['終了時間'],
       timestamp,
       shiftData['カレンダーイベントID'] || ''
     ];
 
     sheet.appendRow(rowData);
-    console.log(`確定シフト保存: ${shiftData['氏名']} ${shiftData['日付']}`);
+    console.log(`確定シフト保存: ${shiftData['氏名']} ${Utilities.formatDate(shiftData['勤務開始日'], Session.getScriptTimeZone(), 'yyyy/MM/dd')} - ${Utilities.formatDate(shiftData['勤務終了日'], Session.getScriptTimeZone(), 'yyyy/MM/dd')}`);
 
     return shiftId;
   } catch (e) {
@@ -356,10 +358,10 @@ function deleteConfirmedShiftByMonth(year, month) {
     const rowsToDelete = [];
 
     for (let i = data.length - 1; i >= 1; i--) {
-      const rowDate = data[i][3];
+      const startDate = data[i][4];  // 勤務開始日（インデックス4）
 
-      if (rowDate) {
-        const date = new Date(rowDate);
+      if (startDate) {
+        const date = new Date(startDate);
         if (date.getFullYear() == year && date.getMonth() + 1 == month) {
           rowsToDelete.push(i + 1);
         }
@@ -387,7 +389,7 @@ function updateCalendarEventId(shiftId, eventId) {
 
     for (let i = 1; i < data.length; i++) {
       if (data[i][0] === shiftId) {
-        sheet.getRange(i + 1, 9).setValue(eventId);
+        sheet.getRange(i + 1, 10).setValue(eventId);  // 10列目（インデックス9）に変更
         console.log(`イベントID更新: ${shiftId} -> ${eventId}`);
         return true;
       }
