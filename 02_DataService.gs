@@ -41,12 +41,21 @@ function getAllStaff() {
       const staff = {};
 
       headers.forEach((header, index) => {
-        staff[header] = row[index];
+        const value = row[index];
+        // 日付・時刻オブジェクトを文字列に変換
+        if (value instanceof Date) {
+          staff[header] = Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+        } else if (value === null || value === undefined) {
+          staff[header] = '';
+        } else {
+          staff[header] = value;
+        }
       });
 
       staffList.push(staff);
     }
 
+    console.log(`職員データ取得: ${staffList.length}件`);
     return staffList;
   } catch (e) {
     console.error('職員データ取得エラー:', e);
@@ -150,12 +159,21 @@ function getAllShiftMaster() {
       const shift = {};
 
       headers.forEach((header, index) => {
-        shift[header] = row[index];
+        const value = row[index];
+        // 日付・時刻オブジェクトを文字列に変換
+        if (value instanceof Date) {
+          shift[header] = Utilities.formatDate(value, Session.getScriptTimeZone(), 'HH:mm');
+        } else if (value === null || value === undefined) {
+          shift[header] = '';
+        } else {
+          shift[header] = value;
+        }
       });
 
       shiftList.push(shift);
     }
 
+    console.log(`シフトマスタ取得: ${shiftList.length}件`);
     return shiftList;
   } catch (e) {
     console.error('シフトマスタ取得エラー:', e);
@@ -263,13 +281,14 @@ function getHolidayRequestByNameAndMonth(name, year, month) {
         const date = new Date(rowDate);
         if (date.getFullYear() == year && date.getMonth() + 1 == month) {
           requests.push({
-            '日付': date,
-            '特記事項': data[i][4]
+            '日付': date.toISOString(),  // ISO文字列に変換
+            '特記事項': data[i][4] || ''
           });
         }
       }
     }
 
+    console.log(`休み希望取得: ${name} ${year}/${month} (${requests.length}件)`);
     return requests;
   } catch (e) {
     console.error('休み希望取得エラー:', e);
