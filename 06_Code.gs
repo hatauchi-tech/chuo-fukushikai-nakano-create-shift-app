@@ -329,6 +329,36 @@ function apiGetAllShiftMaster() {
 }
 
 /**
+ * シフトマスタ保存
+ */
+function apiSaveShiftMaster(shiftData) {
+  try {
+    saveShiftMaster(shiftData);
+    return { success: true, message: '保存しました' };
+  } catch (e) {
+    console.error('シフトマスタ保存エラー:', e);
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * シフトマスタ削除
+ */
+function apiDeleteShiftMaster(shiftId) {
+  try {
+    const result = deleteShiftMaster(shiftId);
+    if (result) {
+      return { success: true, message: '削除しました' };
+    } else {
+      return { success: false, message: 'データが見つかりませんでした' };
+    }
+  } catch (e) {
+    console.error('シフトマスタ削除エラー:', e);
+    return { success: false, message: e.message };
+  }
+}
+
+/**
  * 休み希望保存
  */
 function apiSaveHolidayRequest(name, dateList, notes) {

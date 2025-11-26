@@ -187,6 +187,64 @@ function getShiftByName(shiftName) {
   return allShifts.find(shift => shift['シフト名'] === shiftName);
 }
 
+// シフトマスタを保存/更新
+function saveShiftMaster(shiftData) {
+  try {
+    const sheet = initializeShiftMasterSheet();
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+
+    // シフトIDで既存レコードを検索
+    let rowIndex = -1;
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === shiftData['シフトID']) {
+        rowIndex = i;
+        break;
+      }
+    }
+
+    const rowData = headers.map(header => shiftData[header] || '');
+
+    if (rowIndex >= 0) {
+      // 更新
+      sheet.getRange(rowIndex + 1, 1, 1, rowData.length).setValues([rowData]);
+      console.log(`シフトマスタ更新: ${shiftData['シフト名']}`);
+    } else {
+      // 新規追加
+      sheet.appendRow(rowData);
+      console.log(`シフトマスタ追加: ${shiftData['シフト名']}`);
+    }
+
+    return true;
+  } catch (e) {
+    console.error('シフトマスタ保存エラー:', e);
+    throw e;
+  }
+}
+
+// シフトマスタを削除
+function deleteShiftMaster(shiftId) {
+  try {
+    const sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_MASTER);
+    const data = sheet.getDataRange().getValues();
+
+    // シフトIDで該当行を検索
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === shiftId) {
+        sheet.deleteRow(i + 1);
+        console.log(`シフトマスタ削除: ${shiftId}`);
+        return true;
+      }
+    }
+
+    console.log(`シフトマスタ削除失敗: ${shiftId} が見つかりません`);
+    return false;
+  } catch (e) {
+    console.error('シフトマスタ削除エラー:', e);
+    throw e;
+  }
+}
+
 // ============================================
 // T_シフト休み希望関連
 // ============================================
