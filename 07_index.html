@@ -498,17 +498,21 @@
       const [year, month] = targetMonth.split('-').map(Number);
       const notes = document.getElementById('requestNotes').value;
 
-      const dateList = selectedDates.map(day => new Date(year, month - 1, day));
+      // DateオブジェクトをISO文字列に変換（GASで受け取れる形式に）
+      const dateList = selectedDates.map(day => {
+        const date = new Date(year, month - 1, day);
+        return date.toISOString();
+      });
 
       showLoading();
 
       google.script.run
         .withSuccessHandler(function(result) {
           hideLoading();
-          if (result.success) {
+          if (result && result.success) {
             showMessage('holidayMessage', result.message, 'success');
           } else {
-            showMessage('holidayMessage', result.message, 'error');
+            showMessage('holidayMessage', result ? result.message : 'エラーが発生しました', 'error');
           }
         })
         .withFailureHandler(function(error) {
@@ -662,12 +666,15 @@
       google.script.run
         .withSuccessHandler(function(result) {
           hideLoading();
-          if (result.success) {
+          if (result && result.success) {
             renderShiftMasterTable(result.data);
+          } else {
+            alert('シフトマスタの読み込みに失敗しました: ' + (result ? result.message : '不明なエラー'));
           }
         })
         .withFailureHandler(function(error) {
           hideLoading();
+          alert('エラーが発生しました: ' + error.message);
           console.error(error);
         })
         .apiGetAllShiftMaster();

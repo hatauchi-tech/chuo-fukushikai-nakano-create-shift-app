@@ -193,17 +193,20 @@ function saveHolidayRequest(name, dateList, notes = '') {
     const sheet = initializeHolidayRequestSheet();
     const timestamp = new Date();
 
+    // ISO文字列をDateオブジェクトに変換
+    const dates = dateList.map(d => new Date(d));
+
     // 既存の該当月データを削除（上書き保存）
-    const yearMonth = Utilities.formatDate(dateList[0], Session.getScriptTimeZone(), 'yyyyMM');
+    const yearMonth = Utilities.formatDate(dates[0], Session.getScriptTimeZone(), 'yyyyMM');
     deleteHolidayRequestByNameAndMonth(name, yearMonth);
 
     // 新規保存
-    dateList.forEach(date => {
+    dates.forEach(date => {
       const requestId = `REQ_${name}_${Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyyMMdd')}_${timestamp.getTime()}`;
       sheet.appendRow([requestId, name, timestamp, date, notes]);
     });
 
-    console.log(`休み希望保存: ${name} (${dateList.length}件)`);
+    console.log(`休み希望保存: ${name} (${dates.length}件)`);
     return true;
   } catch (e) {
     console.error('休み希望保存エラー:', e);
