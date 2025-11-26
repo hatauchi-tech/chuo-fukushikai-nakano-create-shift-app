@@ -13,7 +13,7 @@
 function doGet(e) {
   try {
     console.log('Webアプリ起動');
-    return HtmlService.createHtmlOutputFromFile('index')
+    return HtmlService.createHtmlOutputFromFile('07_index')
       .setTitle('シフト管理システム')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   } catch (error) {
