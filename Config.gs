@@ -3,23 +3,15 @@
  * スクリプトプロパティとスプレッドシート設定を管理
  */
 
-// スプレッドシートIDを取得（現在のスプレッドシート）
-function getSpreadsheetId() {
-  const props = PropertiesService.getScriptProperties();
-  let ssId = props.getProperty('SPREADSHEET_ID');
-
-  if (!ssId) {
-    // 初回は現在のスプレッドシートIDを設定
-    ssId = SpreadsheetApp.getActiveSpreadsheet().getId();
-    props.setProperty('SPREADSHEET_ID', ssId);
-  }
-
-  return ssId;
-}
-
-// スプレッドシートを取得
+// スプレッドシートを取得（スプレッドシートバインド型）
 function getSpreadsheet() {
-  return SpreadsheetApp.openById(getSpreadsheetId());
+  try {
+    // このGASはスプレッドシートにバインドされているため、getActiveSpreadsheet()を使用
+    return SpreadsheetApp.getActiveSpreadsheet();
+  } catch (e) {
+    console.error('スプレッドシート取得エラー:', e);
+    throw new Error('このスクリプトはスプレッドシートにバインドされている必要があります');
+  }
 }
 
 // 各シート名の定義

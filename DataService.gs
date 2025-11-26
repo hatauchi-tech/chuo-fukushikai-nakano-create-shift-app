@@ -231,7 +231,8 @@ function deleteHolidayRequestByNameAndMonth(name, yearMonth) {
       }
     }
 
-    rowsToDelete.forEach(rowIndex => {
+    // 逆順で削除（行番号のずれを防ぐ）
+    rowsToDelete.reverse().forEach(rowIndex => {
       sheet.deleteRow(rowIndex);
     });
 
@@ -343,7 +344,8 @@ function deleteConfirmedShiftByMonth(year, month) {
       }
     }
 
-    rowsToDelete.forEach(rowIndex => {
+    // 逆順で削除（行番号のずれを防ぐ）
+    rowsToDelete.reverse().forEach(rowIndex => {
       sheet.deleteRow(rowIndex);
     });
 

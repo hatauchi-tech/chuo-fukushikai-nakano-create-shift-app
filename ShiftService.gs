@@ -203,9 +203,10 @@ function checkMinimumStaffRule(data, staff, daysInMonth) {
       }
 
       // 日曜日以外は日勤1名以上
-      const date = new Date(data[0][day]);
-      const dayOfWeek = date.getDay();
-      if (dayOfWeek !== 0 && shiftCounts['日勤'] < 1) {
+      // ヘッダーから日付を取得（例: "1/1(日)" から曜日を判定）
+      const headerText = String(data[0][day]);
+      const isSunday = headerText.includes('(日)');
+      if (!isSunday && shiftCounts['日勤'] < 1) {
         violations.push({
           type: '最低人数不足',
           group: group,
