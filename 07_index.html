@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>シフト管理システム</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    .calendar-day {
+      min-height: 40px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .calendar-day:hover {
+      transform: scale(1.05);
+    }
+
+    .calendar-day.selected {
+      background-color: #3b82f6;
+      color: white;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+  <!-- ローディング画面 -->
+  <div id="loading" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white p-8 rounded-lg shadow-xl">
+      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+      <p class="mt-4 text-gray-700">読み込み中...</p>
+    </div>
+  </div>
+
+  <!-- メインコンテナ -->
+  <div id="app" class="hidden">
+
+    <!-- ヘッダー -->
+    <header class="bg-blue-600 text-white shadow-lg">
+      <div class="container mx-auto px-4 py-4">
+        <div class="flex justify-between items-center">
+          <h1 class="text-2xl font-bold">📅 シフト管理システム</h1>
+          <div id="userInfo" class="hidden">
+            <span id="userName" class="mr-4"></span>
+            <button onclick="logout()" class="bg-red-500 hover:bg-red-600 px-4 py-2 rounded transition">
+              ログアウト
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- ナビゲーション（管理者のみ表示） -->
+    <nav id="adminNav" class="bg-white shadow-md hidden">
+      <div class="container mx-auto px-4">
+        <ul class="flex space-x-4 py-3">
+          <li>
+            <button onclick="showView('holiday-request')" class="nav-btn px-4 py-2 rounded hover:bg-blue-100 transition">
+              休み希望提出
+            </button>
+          </li>
+          <li>
+            <button onclick="showView('staff-master')" class="nav-btn px-4 py-2 rounded hover:bg-blue-100 transition">
+              職員マスタ管理
+            </button>
+          </li>
+          <li>
+            <button onclick="showView('shift-master')" class="nav-btn px-4 py-2 rounded hover:bg-blue-100 transition">
+              シフトマスタ管理
+            </button>
+          </li>
+        </ul>
+      </div>
+    </nav>
+
+    <!-- メインコンテンツ -->
+    <main class="container mx-auto px-4 py-8">
+
+      <!-- ログイン画面 -->
+      <div id="loginView" class="max-w-md mx-auto bg-white rounded-lg shadow-lg p-8">
+        <h2 class="text-2xl font-bold mb-6 text-center text-gray-800">ログイン</h2>
+        <form onsubmit="handleLogin(event)" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">ログインID</label>
+            <input type="text" id="loginId" required
+              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">パスワード</label>
+            <input type="password" id="loginPassword" required
+              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+          </div>
+          <button type="submit"
+            class="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition font-semibold">
+            ログイン
+          </button>
+        </form>
+        <div id="loginError" class="mt-4 text-red-600 text-sm hidden"></div>
+      </div>
+
+      <!-- 休み希望提出画面 -->
+      <div id="holidayRequestView" class="hidden">
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h2 class="text-2xl font-bold mb-6 text-gray-800">休み希望提出</h2>
+
+          <div class="mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2">対象月</label>
+            <input type="month" id="targetMonth"
+              class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              onchange="loadHolidayRequest()">
+          </div>
+
+          <div id="lockMessage" class="hidden mb-4 p-4 bg-yellow-100 border border-yellow-400 rounded-lg">
+            <p class="text-yellow-800">⚠️ この月の提出は締め切られています。閲覧のみ可能です。</p>
+          </div>
+
+          <div id="calendar" class="mb-6"></div>
+
+          <div class="mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2">特記事項</label>
+            <textarea id="requestNotes" rows="3"
+              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              placeholder="特記事項があれば入力してください"></textarea>
+          </div>
+
+          <div class="flex space-x-4">
+            <button onclick="saveHolidayRequest()" id="saveButton"
+              class="flex-1 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition font-semibold">
+              保存
+            </button>
+            <button onclick="clearHolidayRequest()"
+              class="flex-1 bg-gray-500 text-white py-3 rounded-lg hover:bg-gray-600 transition font-semibold">
+              クリア
+            </button>
+          </div>
+
+          <div id="holidayMessage" class="mt-4 hidden"></div>
+        </div>
+      </div>
+
+      <!-- 職員マスタ管理画面 -->
+      <div id="staffMasterView" class="hidden">
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h2 class="text-2xl font-bold mb-6 text-gray-800">職員マスタ管理</h2>
+
+          <div class="mb-4">
+            <button onclick="showStaffForm()" class="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition">
+              + 新規追加
+            </button>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">氏名</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">役職</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">グループ</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">雇用形態</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">有効</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
+                </tr>
+              </thead>
+              <tbody id="staffTableBody" class="bg-white divide-y divide-gray-200">
+                <!-- ここに職員データが表示される -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 職員編集フォーム（モーダル） -->
+        <div id="staffFormModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
+          <div class="bg-white rounded-lg shadow-xl p-8 max-w-2xl w-full max-h-screen overflow-y-auto">
+            <h3 class="text-xl font-bold mb-4">職員情報編集</h3>
+            <form onsubmit="saveStaffData(event)" class="space-y-4">
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">職員ID</label>
+                  <input type="text" id="staff_id" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">氏名</label>
+                  <input type="text" id="staff_name" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">役職</label>
+                  <input type="text" id="staff_role" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">グループ</label>
+                  <select id="staff_group" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                    <option value="6">6</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">雇用形態</label>
+                  <select id="staff_employment" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                    <option value="常勤">常勤</option>
+                    <option value="パート">パート</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">ログインID</label>
+                  <input type="text" id="staff_login_id" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">パスワード</label>
+                  <input type="password" id="staff_password" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">カレンダーID</label>
+                  <input type="text" id="staff_calendar_id" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                </div>
+                <div class="flex items-center">
+                  <input type="checkbox" id="staff_qualified" class="mr-2">
+                  <label class="text-sm font-medium text-gray-700">喀痰吸引資格者</label>
+                </div>
+                <div class="flex items-center">
+                  <input type="checkbox" id="staff_care_required" class="mr-2">
+                  <label class="text-sm font-medium text-gray-700">勤務配慮</label>
+                </div>
+                <div class="flex items-center">
+                  <input type="checkbox" id="staff_active" class="mr-2" checked>
+                  <label class="text-sm font-medium text-gray-700">有効</label>
+                </div>
+              </div>
+
+              <div class="flex space-x-4 mt-6">
+                <button type="submit" class="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition">
+                  保存
+                </button>
+                <button type="button" onclick="closeStaffForm()" class="flex-1 bg-gray-500 text-white py-2 rounded-lg hover:bg-gray-600 transition">
+                  キャンセル
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- シフトマスタ管理画面 -->
+      <div id="shiftMasterView" class="hidden">
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h2 class="text-2xl font-bold mb-6 text-gray-800">シフトマスタ管理</h2>
+          <div id="shiftMasterTable"></div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <script>
+    // グローバル変数
+    let currentSession = null;
+    let selectedDates = [];
+
+    // ページ読み込み時の初期化
+    window.onload = function() {
+      hideLoading();
+      showView('login');
+    };
+
+    // ローディング表示
+    function showLoading() {
+      document.getElementById('loading').classList.remove('hidden');
+    }
+
+    function hideLoading() {
+      document.getElementById('loading').classList.add('hidden');
+    }
+
+    // ビュー切り替え
+    function showView(viewName) {
+      // ハイフン区切りの名前をキャメルケースのIDに変換
+      const viewIdMap = {
+        'login': 'loginView',
+        'holiday-request': 'holidayRequestView',
+        'staff-master': 'staffMasterView',
+        'shift-master': 'shiftMasterView'
+      };
+
+      const viewId = viewIdMap[viewName] || viewName;
+
+      const views = ['loginView', 'holidayRequestView', 'staffMasterView', 'shiftMasterView'];
+      views.forEach(v => {
+        document.getElementById(v).classList.add('hidden');
+      });
+
+      if (viewName === 'login') {
+        document.getElementById('loginView').classList.remove('hidden');
+        document.getElementById('app').classList.remove('hidden');
+        document.getElementById('userInfo').classList.add('hidden');
+        document.getElementById('adminNav').classList.add('hidden');
+      } else {
+        document.getElementById(viewId).classList.remove('hidden');
+        document.getElementById('app').classList.remove('hidden');
+        document.getElementById('userInfo').classList.remove('hidden');
+
+        if (currentSession && currentSession.isAdmin) {
+          document.getElementById('adminNav').classList.remove('hidden');
+        }
+
+        // ビュー表示時の処理
+        if (viewId === 'holidayRequestView') {
+          initHolidayRequestView();
+        } else if (viewId === 'staffMasterView') {
+          loadStaffList();
+        } else if (viewId === 'shiftMasterView') {
+          loadShiftMasterList();
+        }
+      }
+    }
+
+    // ログイン処理
+    function handleLogin(event) {
+      event.preventDefault();
+      showLoading();
+
+      const loginId = document.getElementById('loginId').value;
+      const password = document.getElementById('loginPassword').value;
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          if (result.success) {
+            currentSession = result.session;
+            document.getElementById('userName').textContent = result.session.name;
+            document.getElementById('loginError').classList.add('hidden');
+            showView('holiday-request');
+          } else {
+            document.getElementById('loginError').textContent = result.message;
+            document.getElementById('loginError').classList.remove('hidden');
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          document.getElementById('loginError').textContent = 'エラーが発生しました';
+          document.getElementById('loginError').classList.remove('hidden');
+          console.error(error);
+        })
+        .apiLogin(loginId, password);
+    }
+
+    // ログアウト
+    function logout() {
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function() {
+          currentSession = null;
+          hideLoading();
+          showView('login');
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          console.error(error);
+        })
+        .apiLogout();
+    }
+
+    // 休み希望提出画面の初期化
+    function initHolidayRequestView() {
+      const now = new Date();
+      const targetMonth = document.getElementById('targetMonth');
+      targetMonth.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      loadHolidayRequest();
+    }
+
+    // 休み希望読み込み
+    function loadHolidayRequest() {
+      const targetMonth = document.getElementById('targetMonth').value;
+      if (!targetMonth) return;
+
+      const [year, month] = targetMonth.split('-').map(Number);
+
+      showLoading();
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          if (result.success) {
+            renderCalendar(year, month, result.data);
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          console.error(error);
+        })
+        .apiGetHolidayRequest(currentSession.name, year, month);
+
+      // ロック状態をチェック
+      checkSubmissionLock(year, month);
+    }
+
+    // 提出ロック状態をチェック
+    function checkSubmissionLock(year, month) {
+      const lockKey = `SUBMISSION_LOCK_${year}${String(month).padStart(2, '0')}`;
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          const isLocked = result.value === 'TRUE' || result.value === true;
+          const lockMessage = document.getElementById('lockMessage');
+          const saveButton = document.getElementById('saveButton');
+
+          if (isLocked) {
+            lockMessage.classList.remove('hidden');
+            saveButton.disabled = true;
+            saveButton.classList.add('opacity-50', 'cursor-not-allowed');
+          } else {
+            lockMessage.classList.add('hidden');
+            saveButton.disabled = false;
+            saveButton.classList.remove('opacity-50', 'cursor-not-allowed');
+          }
+        })
+        .apiGetConfig(lockKey);
+    }
+
+    // カレンダー描画
+    function renderCalendar(year, month, existingRequests) {
+      const calendarDiv = document.getElementById('calendar');
+      calendarDiv.innerHTML = '';
+
+      selectedDates = existingRequests.map(req => new Date(req['日付']).getDate());
+
+      const daysInMonth = new Date(year, month, 0).getDate();
+      const firstDay = new Date(year, month - 1, 1).getDay();
+
+      let html = '<div class="grid grid-cols-7 gap-2">';
+
+      // 曜日ヘッダー
+      const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+      dayNames.forEach((name, index) => {
+        const color = index === 0 ? 'text-red-600' : index === 6 ? 'text-blue-600' : 'text-gray-700';
+        html += `<div class="text-center font-bold ${color}">${name}</div>`;
+      });
+
+      // 空白セル
+      for (let i = 0; i < firstDay; i++) {
+        html += '<div></div>';
+      }
+
+      // 日付セル
+      for (let day = 1; day <= daysInMonth; day++) {
+        const date = new Date(year, month - 1, day);
+        const dayOfWeek = date.getDay();
+        const isSelected = selectedDates.includes(day);
+
+        let bgColor = isSelected ? 'bg-blue-500 text-white' : 'bg-white hover:bg-blue-100';
+        let textColor = dayOfWeek === 0 ? 'text-red-600' : dayOfWeek === 6 ? 'text-blue-600' : 'text-gray-700';
+
+        if (isSelected) {
+          textColor = 'text-white';
+        }
+
+        html += `<div class="calendar-day ${isSelected ? 'selected' : ''} ${bgColor} ${textColor} border border-gray-300 rounded p-2 text-center"
+                     onclick="toggleDate(${day})">
+                  ${day}
+                </div>`;
+      }
+
+      html += '</div>';
+      calendarDiv.innerHTML = html;
+    }
+
+    // 日付選択トグル
+    function toggleDate(day) {
+      const index = selectedDates.indexOf(day);
+      if (index >= 0) {
+        selectedDates.splice(index, 1);
+      } else {
+        selectedDates.push(day);
+      }
+
+      const targetMonth = document.getElementById('targetMonth').value;
+      const [year, month] = targetMonth.split('-').map(Number);
+      renderCalendar(year, month, selectedDates.map(d => ({ '日付': new Date(year, month - 1, d) })));
+    }
+
+    // 休み希望保存
+    function saveHolidayRequest() {
+      if (selectedDates.length === 0) {
+        alert('日付を選択してください');
+        return;
+      }
+
+      const targetMonth = document.getElementById('targetMonth').value;
+      const [year, month] = targetMonth.split('-').map(Number);
+      const notes = document.getElementById('requestNotes').value;
+
+      // DateオブジェクトをISO文字列に変換（GASで受け取れる形式に）
+      const dateList = selectedDates.map(day => {
+        const date = new Date(year, month - 1, day);
+        return date.toISOString();
+      });
+
+      showLoading();
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          if (result && result.success) {
+            showMessage('holidayMessage', result.message, 'success');
+          } else {
+            showMessage('holidayMessage', result ? result.message : 'エラーが発生しました', 'error');
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          showMessage('holidayMessage', 'エラーが発生しました', 'error');
+          console.error(error);
+        })
+        .apiSaveHolidayRequest(currentSession.name, dateList, notes);
+    }
+
+    // 休み希望クリア
+    function clearHolidayRequest() {
+      selectedDates = [];
+      const targetMonth = document.getElementById('targetMonth').value;
+      const [year, month] = targetMonth.split('-').map(Number);
+      renderCalendar(year, month, []);
+      document.getElementById('requestNotes').value = '';
+    }
+
+    // メッセージ表示
+    function showMessage(elementId, message, type) {
+      const element = document.getElementById(elementId);
+      element.textContent = message;
+      element.className = type === 'success' ? 'p-4 bg-green-100 text-green-800 rounded-lg' : 'p-4 bg-red-100 text-red-800 rounded-lg';
+      element.classList.remove('hidden');
+
+      setTimeout(() => {
+        element.classList.add('hidden');
+      }, 3000);
+    }
+
+    // 職員一覧読み込み
+    function loadStaffList() {
+      showLoading();
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          if (result.success) {
+            renderStaffTable(result.data);
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          console.error(error);
+        })
+        .apiGetAllStaff();
+    }
+
+    // 職員テーブル描画
+    function renderStaffTable(staffList) {
+      const tbody = document.getElementById('staffTableBody');
+      tbody.innerHTML = '';
+
+      staffList.forEach(staff => {
+        const row = `<tr>
+          <td class="px-4 py-3">${staff['氏名']}</td>
+          <td class="px-4 py-3">${staff['役職']}</td>
+          <td class="px-4 py-3">${staff['グループ']}</td>
+          <td class="px-4 py-3">${staff['雇用形態']}</td>
+          <td class="px-4 py-3">${staff['有効'] ? '✓' : ''}</td>
+          <td class="px-4 py-3">
+            <button onclick='editStaff(${JSON.stringify(staff).replace(/'/g, "&#39;")})' class="text-blue-600 hover:underline">
+              編集
+            </button>
+          </td>
+        </tr>`;
+        tbody.innerHTML += row;
+      });
+    }
+
+    // 職員編集フォーム表示
+    function showStaffForm() {
+      document.getElementById('staffFormModal').classList.remove('hidden');
+      // フォームをクリア
+      document.getElementById('staff_id').value = 'STAFF_' + Date.now();
+      document.getElementById('staff_name').value = '';
+      document.getElementById('staff_role').value = '';
+      document.getElementById('staff_group').value = '1';
+      document.getElementById('staff_employment').value = '常勤';
+      document.getElementById('staff_login_id').value = '';
+      document.getElementById('staff_password').value = '';
+      document.getElementById('staff_calendar_id').value = '';
+      document.getElementById('staff_qualified').checked = false;
+      document.getElementById('staff_care_required').checked = false;
+      document.getElementById('staff_active').checked = true;
+    }
+
+    // 職員編集
+    function editStaff(staff) {
+      document.getElementById('staffFormModal').classList.remove('hidden');
+      document.getElementById('staff_id').value = staff['職員ID'];
+      document.getElementById('staff_name').value = staff['氏名'];
+      document.getElementById('staff_role').value = staff['役職'];
+      document.getElementById('staff_group').value = staff['グループ'];
+      document.getElementById('staff_employment').value = staff['雇用形態'];
+      document.getElementById('staff_login_id').value = staff['ログインID'];
+      document.getElementById('staff_password').value = staff['パスワード'];
+      document.getElementById('staff_calendar_id').value = staff['カレンダーID'];
+      document.getElementById('staff_qualified').checked = staff['喀痰吸引資格者'];
+      document.getElementById('staff_care_required').checked = staff['勤務配慮'];
+      document.getElementById('staff_active').checked = staff['有効'];
+    }
+
+    // 職員フォームを閉じる
+    function closeStaffForm() {
+      document.getElementById('staffFormModal').classList.add('hidden');
+    }
+
+    // 職員データ保存
+    function saveStaffData(event) {
+      event.preventDefault();
+      showLoading();
+
+      const staffData = {
+        '職員ID': document.getElementById('staff_id').value,
+        '氏名': document.getElementById('staff_name').value,
+        '役職': document.getElementById('staff_role').value,
+        'グループ': document.getElementById('staff_group').value,
+        '雇用形態': document.getElementById('staff_employment').value,
+        'ログインID': document.getElementById('staff_login_id').value,
+        'パスワード': document.getElementById('staff_password').value,
+        'カレンダーID': document.getElementById('staff_calendar_id').value,
+        '喀痰吸引資格者': document.getElementById('staff_qualified').checked,
+        '勤務配慮': document.getElementById('staff_care_required').checked,
+        '有効': document.getElementById('staff_active').checked
+      };
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          closeStaffForm();
+          if (result.success) {
+            loadStaffList();
+          } else {
+            alert('エラー: ' + result.message);
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          alert('エラーが発生しました');
+          console.error(error);
+        })
+        .apiSaveStaff(staffData);
+    }
+
+    // シフトマスタ一覧読み込み
+    function loadShiftMasterList() {
+      showLoading();
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          if (result && result.success) {
+            renderShiftMasterTable(result.data);
+          } else {
+            alert('シフトマスタの読み込みに失敗しました: ' + (result ? result.message : '不明なエラー'));
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          alert('エラーが発生しました: ' + error.message);
+          console.error(error);
+        })
+        .apiGetAllShiftMaster();
+    }
+
+    // シフトマスタテーブル描画
+    function renderShiftMasterTable(shiftList) {
+      const container = document.getElementById('shiftMasterTable');
+      let html = '<table class="min-w-full divide-y divide-gray-200">';
+      html += '<thead class="bg-gray-50"><tr>';
+      html += '<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">シフト名</th>';
+      html += '<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">開始時間</th>';
+      html += '<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">終了時間</th>';
+      html += '<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">備考</th>';
+      html += '</tr></thead><tbody class="bg-white divide-y divide-gray-200">';
+
+      shiftList.forEach(shift => {
+        html += '<tr>';
+        html += `<td class="px-4 py-3">${shift['シフト名']}</td>`;
+        html += `<td class="px-4 py-3">${shift['開始時間']}</td>`;
+        html += `<td class="px-4 py-3">${shift['終了時間']}</td>`;
+        html += `<td class="px-4 py-3">${shift['備考']}</td>`;
+        html += '</tr>';
+      });
+
+      html += '</tbody></table>';
+      container.innerHTML = html;
+    }
+  </script>
+
+</body>
+</html>
