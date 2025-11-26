@@ -179,39 +179,58 @@ function showRuleCheckDialog() {
  */
 function showRegisterShiftDialog() {
   const ui = SpreadsheetApp.getUi();
-  const response = ui.prompt(
-    'シフト登録',
+
+  // ステップ1: 年月入力
+  const monthResponse = ui.prompt(
+    'シフト登録 - ステップ1/2',
     '対象年月を入力してください (例: 2025/01)',
     ui.ButtonSet.OK_CANCEL
   );
 
-  if (response.getSelectedButton() === ui.Button.OK) {
-    const input = response.getResponseText();
-    const [year, month] = input.split('/').map(s => parseInt(s.trim()));
+  if (monthResponse.getSelectedButton() !== ui.Button.OK) return;
 
-    if (year && month) {
-      // まずルールチェック
-      const checkResult = checkShiftRules(year, month);
+  const input = monthResponse.getResponseText();
+  const [year, month] = input.split('/').map(s => parseInt(s.trim()));
 
-      if (checkResult.violations && checkResult.violations.length > 0) {
-        const confirm = ui.alert(
-          '警告',
-          `${checkResult.violations.length}件のルール違反があります。\n登録を続けますか？`,
-          ui.ButtonSet.YES_NO
-        );
-
-        if (confirm !== ui.Button.YES) {
-          return;
-        }
-      }
-
-      // カレンダーに登録
-      const result = registerShiftToCalendar(year, month);
-      ui.alert(result.message);
-    } else {
-      ui.alert('入力形式が正しくありません');
-    }
+  if (!year || !month) {
+    ui.alert('入力形式が正しくありません');
+    return;
   }
+
+  // ステップ2: 処理対象グループの選択
+  const groupResponse = ui.prompt(
+    'シフト登録 - ステップ2/2',
+    '処理対象グループを選択してください:\n\n' +
+    '1, 2, 3, 4, 5, 6 のいずれかを入力\n' +
+    'ALL. 全グループを登録\n\n' +
+    '番号をカンマ区切りで入力 (例: 1,2,3 または ALL):',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (groupResponse.getSelectedButton() !== ui.Button.OK) return;
+
+  const groupInput = groupResponse.getResponseText().trim().toUpperCase();
+  let selectedGroups = [];
+
+  if (groupInput === 'ALL') {
+    selectedGroups = [1, 2, 3, 4, 5, 6];
+  } else {
+    selectedGroups = groupInput.split(',').map(s => parseInt(s.trim())).filter(n => n >= 1 && n <= 6);
+  }
+
+  if (selectedGroups.length === 0) {
+    ui.alert('有効なグループ番号が入力されていません');
+    return;
+  }
+
+  // カレンダーに登録（選択されたグループのみ）
+  const result = registerShiftToCalendarByGroup(year, month, selectedGroups);
+
+  let message = result.message + '\n\n';
+  message += `登録グループ: ${selectedGroups.join(', ')}\n`;
+  message += `登録件数: ${result.count || 0}件`;
+
+  ui.alert(message);
 }
 
 /**

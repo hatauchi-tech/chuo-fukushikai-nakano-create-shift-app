@@ -101,6 +101,111 @@ function registerShiftToCalendar(year, month) {
 }
 
 /**
+ * シフトをカレンダーに登録（グループ選択版・高速化）
+ * @param {number} year - 対象年
+ * @param {number} month - 対象月
+ * @param {Array} selectedGroups - 処理対象グループの配列 [1,2,3,4,5,6]
+ */
+function registerShiftToCalendarByGroup(year, month, selectedGroups) {
+  try {
+    console.log(`カレンダー登録開始（グループ選択版）: ${year}年${month}月 (グループ: ${selectedGroups.join(',')})`);
+
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.WORK_SHEET);
+    if (!sheet) {
+      return { success: false, message: '作業用シートが見つかりません' };
+    }
+
+    const staff = getActiveStaff();
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const data = sheet.getDataRange().getValues();
+
+    // まず既存の確定シフトを削除（選択されたグループのみ）
+    deleteConfirmedShiftByMonthAndGroup(year, month, selectedGroups);
+
+    let registeredCount = 0;
+    const shiftsToSave = [];  // 一括保存用の配列
+
+    // 各スタッフのシフトを処理（選択されたグループのみ）
+    for (let i = 1; i < data.length; i++) {
+      const name = data[i][0];
+      const group = data[i][1];
+      const person = staff.find(s => s['氏名'] === name);
+
+      if (!person) continue;
+
+      // 選択されたグループのみ処理
+      if (!selectedGroups.includes(parseInt(group))) continue;
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const shiftName = data[i][day + 1];  // グループ列追加により+1
+
+        if (shiftName && shiftName !== '休み' && shiftName !== '') {
+          const startDate = new Date(year, month - 1, day);
+          const shiftInfo = getShiftByName(shiftName);
+
+          if (!shiftInfo) continue;
+
+          // 終了日を計算
+          let endDate = new Date(startDate);
+          const startTime = shiftInfo['開始時間'] || '00:00';
+          const endTime = shiftInfo['終了時間'] || '00:00';
+
+          if (endTime && startTime && endTime < startTime) {
+            endDate.setDate(endDate.getDate() + 1);
+          }
+
+          // 確定シフトデータを配列に追加（後で一括保存）
+          shiftsToSave.push({
+            '氏名': name,
+            'グループ': group,
+            'シフト名': shiftName,
+            '勤務開始日': startDate,
+            '開始時間': startTime,
+            '勤務終了日': endDate,
+            '終了時間': endTime,
+            'カレンダーID': person['カレンダーID']
+          });
+        }
+      }
+    }
+
+    // 確定シフトを一括保存（高速化）
+    const savedShifts = saveConfirmedShiftsBulk(shiftsToSave);
+
+    // カレンダーに登録
+    savedShifts.forEach((shiftData, index) => {
+      if (shiftData.calendarId) {
+        const eventId = createOrUpdateCalendarEvent(
+          shiftData.calendarId,
+          shiftData['氏名'],
+          shiftData['勤務開始日'],
+          shiftData['勤務終了日'],
+          { 'シフト名': shiftData['シフト名'], '開始時間': shiftData['開始時間'], '終了時間': shiftData['終了時間'] },
+          null
+        );
+
+        if (eventId) {
+          updateCalendarEventId(shiftData.shiftId, eventId);
+          registeredCount++;
+        }
+      }
+    });
+
+    console.log(`カレンダー登録完了（グループ選択版）: ${registeredCount}件`);
+
+    return {
+      success: true,
+      count: registeredCount,
+      message: `${registeredCount}件のシフトをカレンダーに登録しました`
+    };
+
+  } catch (e) {
+    console.error('カレンダー登録エラー（グループ選択版）:', e);
+    return { success: false, message: 'エラーが発生しました: ' + e.message };
+  }
+}
+
+/**
  * カレンダーイベントを作成または更新
  * @param {string} calendarId - カレンダーID
  * @param {string} staffName - スタッフ名
