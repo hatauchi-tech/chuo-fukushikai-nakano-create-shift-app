@@ -29,12 +29,13 @@ function registerShiftToCalendar(year, month) {
     // 各スタッフのシフトをカレンダーに登録
     for (let i = 1; i < data.length; i++) {
       const name = data[i][0];
+      const group = data[i][1];  // グループ列を読み取り
       const person = staff.find(s => s['氏名'] === name);
 
       if (!person) continue;
 
       for (let day = 1; day <= daysInMonth; day++) {
-        const shiftName = data[i][day];
+        const shiftName = data[i][day + 1];  // グループ列追加により+1に変更
 
         if (shiftName && shiftName !== '休み' && shiftName !== '') {
           const startDate = new Date(year, month - 1, day);

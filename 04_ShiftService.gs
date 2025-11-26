@@ -27,7 +27,7 @@ function createShiftDraft(year, month) {
       const holidays = getHolidayRequestByNameAndMonth(person['氏名'], year, month);
       holidays.forEach(holiday => {
         const day = new Date(holiday['日付']).getDate();
-        workSheet.getRange(index + 2, day + 1).setValue('休み');
+        workSheet.getRange(index + 2, day + 2).setValue('休み');  // グループ列追加により+2に変更
       });
     });
 
@@ -44,7 +44,7 @@ function createShiftDraft(year, month) {
 }
 
 /**
- * 作業用シートを初期化
+ * 作業用シートを初期化（高速化・改善版）
  */
 function initializeWorkSheet(year, month, staff, daysInMonth) {
   const ss = getSpreadsheet();
@@ -57,29 +57,64 @@ function initializeWorkSheet(year, month, staff, daysInMonth) {
   }
   sheet = ss.insertSheet(sheetName);
 
-  // ヘッダー行を作成
-  const headers = ['氏名'];
+  // データテーブル全体を配列で作成（高速化）
+  const tableData = [];
+
+  // ヘッダー行を作成（氏名・グループ列を追加）
+  const headers = ['氏名', 'グループ'];
+  const headerDates = []; // 日付型データ用
+
   for (let day = 1; day <= daysInMonth; day++) {
     const date = new Date(year, month - 1, day);
-    const dayOfWeek = ['日', '月', '火', '水', '木', '金', '土'][date.getDay()];
-    headers.push(`${month}/${day}(${dayOfWeek})`);
+    headers.push(date);  // 日付型データを追加
+    headerDates.push(date);
   }
-  sheet.appendRow(headers);
+  tableData.push(headers);
 
-  // スタッフ名を追加
+  // スタッフ行を作成
   staff.forEach(person => {
-    const row = [person['氏名']];
+    const row = [person['氏名'], person['グループ']];
     for (let day = 1; day <= daysInMonth; day++) {
-      row.push('');
+      row.push('');  // 空のシフト欄
     }
-    sheet.appendRow(row);
+    tableData.push(row);
   });
 
-  // ヘッダーのスタイル設定
-  sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#4a86e8').setFontColor('#ffffff');
-  sheet.setFrozenRows(1);
-  sheet.setFrozenColumns(1);
+  // 配列一括貼り付け（高速化）
+  const range = sheet.getRange(1, 1, tableData.length, headers.length);
+  range.setValues(tableData);
 
+  // ヘッダーのスタイル設定
+  const headerRange = sheet.getRange(1, 1, 1, headers.length);
+  headerRange
+    .setFontWeight('bold')
+    .setBackground('#4a86e8')
+    .setFontColor('#ffffff');
+
+  // 日付列の表示形式を「M/d(aaa)」に設定
+  const dateHeaderRange = sheet.getRange(1, 3, 1, daysInMonth);
+  dateHeaderRange.setNumberFormat('M/d(aaa)');
+
+  // 固定列を2列（氏名・グループ）に設定
+  sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(2);
+
+  // シフト名のプルダウン（入力規則）を設定
+  const shiftMaster = getAllShiftMaster();
+  const shiftNames = shiftMaster.map(shift => shift['シフト名']);
+
+  if (shiftNames.length > 0 && staff.length > 0) {
+    const rule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(shiftNames, true)  // プルダウン表示
+      .setAllowInvalid(true)  // リスト外の値も許可
+      .build();
+
+    // シフト欄（3列目以降、2行目以降）に入力規則を設定
+    const shiftRange = sheet.getRange(2, 3, staff.length, daysInMonth);
+    shiftRange.setDataValidation(rule);
+  }
+
+  console.log(`作業用シート初期化完了: ${staff.length}名 × ${daysInMonth}日`);
   return sheet;
 }
 
@@ -91,7 +126,7 @@ function assignShiftsRandomly(sheet, staff, daysInMonth) {
 
   for (let day = 1; day <= daysInMonth; day++) {
     for (let i = 0; i < staff.length; i++) {
-      const currentValue = sheet.getRange(i + 2, day + 1).getValue();
+      const currentValue = sheet.getRange(i + 2, day + 2).getValue();  // グループ列追加により+2に変更
 
       // 休み希望が既に入っている場合はスキップ
       if (currentValue === '休み') continue;
@@ -108,11 +143,11 @@ function assignShiftsRandomly(sheet, staff, daysInMonth) {
       const random = Math.random();
       if (random < 0.3) {
         // 30%の確率で休み
-        sheet.getRange(i + 2, day + 1).setValue('休み');
+        sheet.getRange(i + 2, day + 2).setValue('休み');  // グループ列追加により+2に変更
       } else {
         // ランダムでシフト選択
         const shiftIndex = Math.floor(Math.random() * availableShifts.length);
-        sheet.getRange(i + 2, day + 1).setValue(availableShifts[shiftIndex]);
+        sheet.getRange(i + 2, day + 2).setValue(availableShifts[shiftIndex]);  // グループ列追加により+2に変更
       }
     }
   }
@@ -185,7 +220,7 @@ function checkMinimumStaffRule(data, staff, daysInMonth) {
       const shiftCounts = { '早出': 0, '日勤': 0, '遅出': 0, '夜勤': 0 };
 
       groupIndices.forEach(rowIndex => {
-        const shiftName = data[rowIndex][day];
+        const shiftName = data[rowIndex][day + 1];  // グループ列追加により+1に変更
         if (shiftCounts.hasOwnProperty(shiftName)) {
           shiftCounts[shiftName]++;
         }
@@ -203,9 +238,9 @@ function checkMinimumStaffRule(data, staff, daysInMonth) {
       }
 
       // 日曜日以外は日勤1名以上
-      // ヘッダーから日付を取得（例: "1/1(日)" から曜日を判定）
-      const headerText = String(data[0][day]);
-      const isSunday = headerText.includes('(日)');
+      // ヘッダーから日付を取得して曜日を判定
+      const headerDate = data[0][day + 1];  // グループ列追加により+1に変更
+      const isSunday = (headerDate instanceof Date) && headerDate.getDay() === 0;
       if (!isSunday && shiftCounts['日勤'] < 1) {
         violations.push({
           type: '最低人数不足',
@@ -253,7 +288,7 @@ function checkConsecutiveWorkDaysRule(data, staff, daysInMonth) {
     let startDay = 0;
 
     for (let day = 1; day <= daysInMonth; day++) {
-      const shiftName = data[i][day];
+      const shiftName = data[i][day + 1];  // グループ列追加により+1に変更
 
       if (shiftName !== '休み' && shiftName !== '') {
         if (consecutiveDays === 0) {
@@ -290,8 +325,8 @@ function checkIntervalRule(data, staff, daysInMonth) {
     const name = data[i][0];
 
     for (let day = 1; day < daysInMonth; day++) {
-      const todayShift = data[i][day];
-      const tomorrowShift = data[i][day + 1];
+      const todayShift = data[i][day + 1];  // グループ列追加により+1に変更
+      const tomorrowShift = data[i][day + 2];  // グループ列追加により+2に変更
 
       if (todayShift === '遅出' && tomorrowShift === '早出') {
         violations.push({
@@ -319,7 +354,7 @@ function checkMaxWorkDaysRule(data, staff, daysInMonth) {
     let workDays = 0;
 
     for (let day = 1; day <= daysInMonth; day++) {
-      const shiftName = data[i][day];
+      const shiftName = data[i][day + 1];  // グループ列追加により+1に変更
 
       if (shiftName === '夜勤') {
         workDays += 2; // 夜勤は2日分
@@ -351,9 +386,9 @@ function checkNightShiftRestRule(data, staff, daysInMonth) {
     const name = data[i][0];
 
     for (let day = 1; day <= daysInMonth - 2; day++) {
-      const shift1 = data[i][day];
-      const shift2 = data[i][day + 1];
-      const shift3 = data[i][day + 2];
+      const shift1 = data[i][day + 1];  // グループ列追加により+1に変更
+      const shift2 = data[i][day + 2];  // グループ列追加により+2に変更
+      const shift3 = data[i][day + 3];  // グループ列追加により+3に変更
 
       if (shift1 === '夜勤') {
         if (shift2 !== '休み') {
@@ -392,7 +427,7 @@ function checkQualifiedStaffRule(data, staff, daysInMonth) {
 
     for (let i = 1; i < data.length; i++) {
       const name = data[i][0];
-      const shiftName = data[i][day];
+      const shiftName = data[i][day + 1];  // グループ列追加により+1に変更
 
       if (shiftName === '夜勤') {
         const person = staff.find(s => s['氏名'] === name);
