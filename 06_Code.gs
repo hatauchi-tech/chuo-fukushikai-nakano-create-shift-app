@@ -97,40 +97,80 @@ function showCreateShiftDialog() {
  */
 function showRuleCheckDialog() {
   const ui = SpreadsheetApp.getUi();
-  const response = ui.prompt(
-    'ルールチェック',
+
+  // ステップ1: 年月入力
+  const monthResponse = ui.prompt(
+    'ルールチェック - ステップ1/2',
     '対象年月を入力してください (例: 2025/01)',
     ui.ButtonSet.OK_CANCEL
   );
 
-  if (response.getSelectedButton() === ui.Button.OK) {
-    const input = response.getResponseText();
-    const [year, month] = input.split('/').map(s => parseInt(s.trim()));
+  if (monthResponse.getSelectedButton() !== ui.Button.OK) return;
 
-    if (year && month) {
-      const result = checkShiftRules(year, month);
+  const input = monthResponse.getResponseText();
+  const [year, month] = input.split('/').map(s => parseInt(s.trim()));
 
-      if (result.success) {
-        if (result.violations.length === 0) {
-          ui.alert('✅ ルール違反はありませんでした！');
-        } else {
-          let message = `⚠️ ${result.violations.length}件の違反が見つかりました:\n\n`;
-          result.violations.slice(0, 10).forEach(v => {
-            message += `• ${v.message}\n`;
-          });
+  if (!year || !month) {
+    ui.alert('入力形式が正しくありません');
+    return;
+  }
 
-          if (result.violations.length > 10) {
-            message += `\n...他 ${result.violations.length - 10}件`;
-          }
+  // ステップ2: チェックするルールを選択
+  const ruleResponse = ui.prompt(
+    'ルールチェック - ステップ2/2',
+    'チェックするルールを選択してください:\n\n' +
+    '1. 最低人数チェック（グループ別）\n' +
+    '2. 連勤制限チェック（6連勤以上）\n' +
+    '3. インターバルチェック（遅出→早出禁止）\n' +
+    '4. 勤務日数上限チェック（月21日以内）\n' +
+    '5. 夜勤明けルール（夜勤→休→休）\n' +
+    '6. 資格者配置チェック（夜勤に資格者1名以上）\n' +
+    'ALL. すべてのルールをチェック\n\n' +
+    '番号をカンマ区切りで入力 (例: 1,2,3 または ALL):',
+    ui.ButtonSet.OK_CANCEL
+  );
 
-          ui.alert(message);
-        }
-      } else {
-        ui.alert('エラー: ' + result.message);
-      }
+  if (ruleResponse.getSelectedButton() !== ui.Button.OK) return;
+
+  const ruleInput = ruleResponse.getResponseText().trim().toUpperCase();
+  let selectedRules = [];
+
+  if (ruleInput === 'ALL') {
+    selectedRules = [1, 2, 3, 4, 5, 6];
+  } else {
+    selectedRules = ruleInput.split(',').map(s => parseInt(s.trim())).filter(n => n >= 1 && n <= 6);
+  }
+
+  if (selectedRules.length === 0) {
+    ui.alert('有効なルール番号が入力されていません');
+    return;
+  }
+
+  // ルールチェック実行
+  const result = checkShiftRulesSelective(year, month, selectedRules);
+
+  if (result.success) {
+    if (result.violations.length === 0) {
+      ui.alert('✅ ルール違反はありませんでした！');
     } else {
-      ui.alert('入力形式が正しくありません');
+      let message = `⚠️ ${result.violations.length}件の違反が見つかりました\n\n`;
+      message += '違反箇所にはセルコメントが追加されました。\n';
+      message += 'セルにマウスを合わせると詳細が確認できます。\n\n';
+      message += '【違反内訳】\n';
+
+      const violationsByType = {};
+      result.violations.forEach(v => {
+        violationsByType[v.type] = (violationsByType[v.type] || 0) + 1;
+      });
+
+      Object.keys(violationsByType).forEach(type => {
+        message += `• ${type}: ${violationsByType[type]}件\n`;
+      });
+
+      ui.alert(message);
     }
+  } else {
+    ui.alert('エラー: ' + result.message);
   }
 }
 

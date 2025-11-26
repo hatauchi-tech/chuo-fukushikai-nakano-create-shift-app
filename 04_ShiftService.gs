@@ -201,6 +201,64 @@ function checkShiftRules(year, month) {
 }
 
 /**
+ * シフトのルールチェックを実行（選択式）
+ * @param {number} year - 対象年
+ * @param {number} month - 対象月
+ * @param {Array} selectedRules - チェックするルール番号の配列 [1,2,3,4,5,6]
+ */
+function checkShiftRulesSelective(year, month, selectedRules) {
+  try {
+    console.log(`ルールチェック開始: ${year}年${month}月 (選択: ${selectedRules.join(',')})`);
+
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.WORK_SHEET);
+    if (!sheet) {
+      return { success: false, message: '作業用シートが見つかりません' };
+    }
+
+    const staff = getActiveStaff();
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const data = sheet.getDataRange().getValues();
+
+    const violations = [];
+
+    // 選択されたルールのみチェック
+    if (selectedRules.includes(1)) {
+      violations.push(...checkMinimumStaffRule(data, staff, daysInMonth));
+    }
+    if (selectedRules.includes(2)) {
+      violations.push(...checkConsecutiveWorkDaysRule(data, staff, daysInMonth));
+    }
+    if (selectedRules.includes(3)) {
+      violations.push(...checkIntervalRule(data, staff, daysInMonth));
+    }
+    if (selectedRules.includes(4)) {
+      violations.push(...checkMaxWorkDaysRule(data, staff, daysInMonth));
+    }
+    if (selectedRules.includes(5)) {
+      violations.push(...checkNightShiftRestRule(data, staff, daysInMonth));
+    }
+    if (selectedRules.includes(6)) {
+      violations.push(...checkQualifiedStaffRule(data, staff, daysInMonth));
+    }
+
+    // 違反箇所にコメントを追加（背景色ではなく）
+    addViolationComments(sheet, violations);
+
+    console.log(`ルールチェック完了: ${violations.length}件の違反`);
+
+    return {
+      success: true,
+      violations: violations,
+      message: `チェック完了: ${violations.length}件の違反が見つかりました`
+    };
+
+  } catch (e) {
+    console.error('ルールチェックエラー:', e);
+    return { success: false, message: 'エラーが発生しました: ' + e.message };
+  }
+}
+
+/**
  * ルール1-4: 最低人数チェック（グループ別）
  */
 function checkMinimumStaffRule(data, staff, daysInMonth) {
@@ -451,18 +509,71 @@ function checkQualifiedStaffRule(data, staff, daysInMonth) {
 }
 
 /**
- * 違反箇所をハイライト表示
+ * 違反箇所をハイライト表示（旧方式 - 背景色）
  */
 function highlightViolations(sheet, violations) {
   // まず全セルの背景色をクリア
   const maxRow = sheet.getLastRow();
   const maxCol = sheet.getLastColumn();
-  sheet.getRange(2, 2, maxRow - 1, maxCol - 1).setBackground(null);
+  sheet.getRange(2, 3, maxRow - 1, maxCol - 2).setBackground(null);  // グループ列対応
 
   // 違反箇所を赤くハイライト
   violations.forEach(v => {
     if (v.row && v.day) {
-      sheet.getRange(v.row + 1, v.day + 1).setBackground('#ff0000').setFontColor('#ffffff');
+      sheet.getRange(v.row + 1, v.day + 2).setBackground('#ff0000').setFontColor('#ffffff');  // グループ列対応
     }
   });
+}
+
+/**
+ * 違反箇所にコメントを追加（新方式）
+ */
+function addViolationComments(sheet, violations) {
+  try {
+    // まず全セルのコメントをクリア（シフト欄のみ）
+    const maxRow = sheet.getLastRow();
+    const maxCol = sheet.getLastColumn();
+    if (maxRow > 1 && maxCol > 2) {
+      const shiftRange = sheet.getRange(2, 3, maxRow - 1, maxCol - 2);
+      shiftRange.clearNote();
+    }
+
+    // 違反箇所ごとにコメントを集約（同じセルに複数の違反がある場合を考慮）
+    const commentMap = {};  // key: "row,col", value: [messages]
+
+    violations.forEach(v => {
+      if (v.row && v.day) {
+        const row = v.row + 1;
+        const col = v.day + 2;  // グループ列追加により+2
+        const key = `${row},${col}`;
+
+        if (!commentMap[key]) {
+          commentMap[key] = [];
+        }
+
+        // コメント内容を作成
+        const commentText = `【${v.type}】\n${v.message}`;
+        commentMap[key].push(commentText);
+      }
+    });
+
+    // コメントを追加
+    Object.keys(commentMap).forEach(key => {
+      const [row, col] = key.split(',').map(Number);
+      const messages = commentMap[key];
+      const fullComment = messages.join('\n\n');
+
+      const cell = sheet.getRange(row, col);
+      cell.setNote(fullComment);
+
+      // 視認性向上のため、コメントがあるセルに薄い黄色背景を設定（オプション）
+      cell.setBackground('#fff3cd');
+    });
+
+    console.log(`コメント追加完了: ${Object.keys(commentMap).length}セルに追加`);
+
+  } catch (e) {
+    console.error('コメント追加エラー:', e);
+    throw e;
+  }
 }
