@@ -48,16 +48,23 @@ Google Apps Script (GAS) を使用したシフト管理自動化システムで�
 
 ```
 chuo-fukushikai-nakano-create-shift-app/
-├── Code.gs              # メインエントリーポイント（Webアプリ・カスタムメニュー）
-├── Config.gs            # 設定管理
-├── DataService.gs       # データアクセス層（CRUD操作）
-├── AuthService.gs       # 認証サービス
-├── ShiftService.gs      # シフト作成・ルールチェックサービス
-├── CalendarService.gs   # Googleカレンダー連携サービス
-├── index.html           # Webアプリ（SPA、Tailwind CSS使用）
+├── 01_Config.gs         # 設定管理（基盤層）
+├── 02_DataService.gs    # データアクセス層（CRUD操作）
+├── 03_AuthService.gs    # 認証サービス
+├── 04_ShiftService.gs   # シフト作成・ルールチェックサービス
+├── 05_CalendarService.gs # Googleカレンダー連携サービス
+├── 06_Code.gs           # メインエントリーポイント（Webアプリ・カスタムメニュー）
+├── 07_index.html        # Webアプリ（SPA、Tailwind CSS使用）
 ├── シフト管理自動化システム 要件定義書.md
+├── 導入手順書.md
+├── 運用手順書.md
 └── README.md
 ```
+
+**ファイル名の番号について**:
+- 番号は読み込み順序を保証するためのものです
+- GASは通常アルファベット順にファイルを読み込むため、依存関係を考慮して番号を付けています
+- この順序を守ることで、定数や関数の未定義エラーを防ぎます
 
 ## 🚀 セットアップ手順
 
@@ -69,15 +76,17 @@ chuo-fukushikai-nakano-create-shift-app/
 
 ### 2. コードをコピー
 
-以下のファイルを順番にGASプロジェクトに追加します：
+以下のファイルを **必ず順番通りに** GASプロジェクトに追加します：
 
-1. `Config.gs`
-2. `DataService.gs`
-3. `AuthService.gs`
-4. `ShiftService.gs`
-5. `CalendarService.gs`
-6. `Code.gs`
-7. `index.html`（HTMLファイルとして追加）
+1. `01_Config.gs`
+2. `02_DataService.gs`
+3. `03_AuthService.gs`
+4. `04_ShiftService.gs`
+5. `05_CalendarService.gs`
+6. `06_Code.gs`
+7. `07_index.html`（HTMLファイルとして追加）
+
+**重要**: ファイル名の先頭の番号を含めてください。番号は読み込み順序を保証します。
 
 ### 3. Googleスプレッドシートを作成
 
