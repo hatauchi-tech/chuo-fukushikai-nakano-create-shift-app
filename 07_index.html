@@ -283,6 +283,16 @@
 
     // ビュー切り替え
     function showView(viewName) {
+      // ハイフン区切りの名前をキャメルケースのIDに変換
+      const viewIdMap = {
+        'login': 'loginView',
+        'holiday-request': 'holidayRequestView',
+        'staff-master': 'staffMasterView',
+        'shift-master': 'shiftMasterView'
+      };
+
+      const viewId = viewIdMap[viewName] || viewName;
+
       const views = ['loginView', 'holidayRequestView', 'staffMasterView', 'shiftMasterView'];
       views.forEach(v => {
         document.getElementById(v).classList.add('hidden');
@@ -294,7 +304,7 @@
         document.getElementById('userInfo').classList.add('hidden');
         document.getElementById('adminNav').classList.add('hidden');
       } else {
-        document.getElementById(viewName).classList.remove('hidden');
+        document.getElementById(viewId).classList.remove('hidden');
         document.getElementById('app').classList.remove('hidden');
         document.getElementById('userInfo').classList.remove('hidden');
 
@@ -303,11 +313,11 @@
         }
 
         // ビュー表示時の処理
-        if (viewName === 'holidayRequestView') {
+        if (viewId === 'holidayRequestView') {
           initHolidayRequestView();
-        } else if (viewName === 'staffMasterView') {
+        } else if (viewId === 'staffMasterView') {
           loadStaffList();
-        } else if (viewName === 'shiftMasterView') {
+        } else if (viewId === 'shiftMasterView') {
           loadShiftMasterList();
         }
       }
