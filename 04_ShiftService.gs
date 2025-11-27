@@ -11,10 +11,16 @@
  * シフト案を作成する（たたき台レベル）
  * @param {number} year - 対象年
  * @param {number} month - 対象月
+ * @param {number} monthlyHolidays - 月間公休日数（デフォルト: 9日）
  */
-function createShiftDraft(year, month) {
+function createShiftDraft(year, month, monthlyHolidays) {
   try {
-    console.log(`シフト案作成開始: ${year}年${month}月`);
+    // デフォルト値の設定
+    if (!monthlyHolidays || monthlyHolidays <= 0) {
+      monthlyHolidays = 9; // デフォルト9日
+    }
+
+    console.log(`シフト案作成開始: ${year}年${month}月 (公休数: ${monthlyHolidays}日)`);
 
     const staff = getActiveStaff();
     const daysInMonth = new Date(year, month, 0).getDate();
@@ -31,8 +37,8 @@ function createShiftDraft(year, month) {
       });
     });
 
-    // 最適化アルゴリズムでシフトを配置
-    const result = assignShiftsWithOptimization(workSheet, staff, year, month, daysInMonth);
+    // 最適化アルゴリズムでシフトを配置（公休数を渡す）
+    const result = assignShiftsWithOptimization(workSheet, staff, year, month, daysInMonth, monthlyHolidays);
 
     console.log('シフト案作成完了');
     return result;
@@ -121,14 +127,31 @@ function initializeWorkSheet(year, month, staff, daysInMonth) {
 /**
  * 最適化アルゴリズムでシフトを配置
  * 制約条件を考慮した貪欲法ベースのシフト生成（グループ単位の最低人数を考慮）
+ *
+ * 【生成ロジックの優先順位】
+ * 1. 最低人員配置の確保（固定枠） - 各グループ・各時間帯の最低必要人数
+ * 2. 固定勤務・夜勤資格者の配置（アンカー） - 資格保有者を確実に配置
+ * 3. 希望休の反映 - 従業員の希望休を優先
+ * 4. 残りのシフト埋め - 空き枠を制約条件に基づいて自動充填
+ *
+ * @param {Object} sheet - 作業用シート
+ * @param {Array} staff - スタッフ配列
+ * @param {number} year - 対象年
+ * @param {number} month - 対象月
+ * @param {number} daysInMonth - 月の日数
+ * @param {number} monthlyHolidays - 月間公休日数
  */
-function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth) {
+function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth, monthlyHolidays) {
   try {
+    // 目標勤務日数を計算: 月間暦日数 - 公休数
+    const targetWorkDays = daysInMonth - monthlyHolidays;
+    console.log(`目標勤務日数: ${targetWorkDays}日 (暦日${daysInMonth}日 - 公休${monthlyHolidays}日)`);
+
     // シフトデータを2次元配列で管理（高速化）
     const shiftData = [];
     const staffCount = staff.length;
 
-    // 現在のシート状態を読み込み（休み希望が既に入っている）
+    // 【優先順位3】現在のシート状態を読み込み（希望休が既に入っている）
     for (let i = 0; i < staffCount; i++) {
       shiftData[i] = [];
       for (let day = 1; day <= daysInMonth; day++) {
@@ -147,7 +170,7 @@ function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth) {
       staffByGroup[group].push({ index: i, data: staff[i] });
     }
 
-    // 日ごとに処理
+    // 【優先順位1,2】日ごとに処理: 最低人員配置 + 資格者配置
     for (let day = 0; day < daysInMonth; day++) {
       const date = new Date(year, month - 1, day + 1);
       const isSunday = date.getDay() === 0;
@@ -160,7 +183,7 @@ function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth) {
         const groupStaff = staffByGroup[group] || [];
 
         // 夜勤: 1名以上（資格者優先）
-        assignShiftToGroup(shiftData, staff, groupStaff, day, '夜勤', 1, true);
+        assignShiftToGroup(shiftData, staff, groupStaff, day, '夜勤', 1, true, targetWorkDays);
 
         // 資格者の夜勤がいるかチェック
         for (const s of groupStaff) {
@@ -171,15 +194,15 @@ function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth) {
         }
 
         // 早出: 2名以上
-        assignShiftToGroup(shiftData, staff, groupStaff, day, '早出', 2, false);
+        assignShiftToGroup(shiftData, staff, groupStaff, day, '早出', 2, false, targetWorkDays);
 
         // 日勤: 1名以上（日曜は0名OK）
         if (!isSunday) {
-          assignShiftToGroup(shiftData, staff, groupStaff, day, '日勤', 1, false);
+          assignShiftToGroup(shiftData, staff, groupStaff, day, '日勤', 1, false, targetWorkDays);
         }
 
         // 遅出: 1名以上
-        assignShiftToGroup(shiftData, staff, groupStaff, day, '遅出', 1, false);
+        assignShiftToGroup(shiftData, staff, groupStaff, day, '遅出', 1, false, targetWorkDays);
       }
 
       // 全グループ横断で資格者の夜勤が1名もいない場合、追加で割り当て
@@ -188,7 +211,7 @@ function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth) {
       }
     }
 
-    // フェーズ3: 残りを休みで埋める
+    // 【優先順位4】残りを休みで埋める
     fillRemainingWithRest(shiftData, staff, daysInMonth);
 
     // シートに一括書き込み（高速化）
@@ -202,7 +225,7 @@ function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth) {
     }
 
     console.log('最適化シフト割り当て完了');
-    return { success: true, message: 'グループ別最低人数を考慮したシフト案を作成しました' };
+    return { success: true, message: `グループ別最低人数を考慮したシフト案を作成しました（目標勤務日数: ${targetWorkDays}日）` };
 
   } catch (e) {
     console.error('最適化シフト割り当てエラー:', e);
@@ -212,8 +235,16 @@ function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth) {
 
 /**
  * グループ内で指定シフトを必要人数分割り当て
+ * @param {Array} shiftData - シフトデータ配列
+ * @param {Array} staff - 全スタッフ配列
+ * @param {Array} groupStaff - グループ内のスタッフ配列
+ * @param {number} day - 対象日（0-indexed）
+ * @param {string} shiftType - シフト種類
+ * @param {number} requiredCount - 必要人数
+ * @param {boolean} qualifiedFirst - 資格者優先フラグ
+ * @param {number} targetWorkDays - 目標勤務日数（参考情報）
  */
-function assignShiftToGroup(shiftData, staff, groupStaff, day, shiftType, requiredCount, qualifiedFirst) {
+function assignShiftToGroup(shiftData, staff, groupStaff, day, shiftType, requiredCount, qualifiedFirst, targetWorkDays) {
   let assignedCount = 0;
 
   // 資格者優先の場合、まず資格者を割り当て

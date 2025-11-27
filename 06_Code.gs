@@ -69,27 +69,52 @@ function openWebApp() {
 }
 
 /**
- * シフト案作成ダイアログ
+ * シフト案作成ダイアログ（2段階入力）
  */
 function showCreateShiftDialog() {
   const ui = SpreadsheetApp.getUi();
-  const response = ui.prompt(
-    'シフト案作成',
+
+  // ステップ1: 年月入力
+  const monthResponse = ui.prompt(
+    'シフト案作成 - ステップ1/2',
     '対象年月を入力してください (例: 2025/01)',
     ui.ButtonSet.OK_CANCEL
   );
 
-  if (response.getSelectedButton() === ui.Button.OK) {
-    const input = response.getResponseText();
-    const [year, month] = input.split('/').map(s => parseInt(s.trim()));
+  if (monthResponse.getSelectedButton() !== ui.Button.OK) return;
 
-    if (year && month) {
-      const result = createShiftDraft(year, month);
-      ui.alert(result.message);
-    } else {
-      ui.alert('入力形式が正しくありません');
-    }
+  const input = monthResponse.getResponseText();
+  const [year, month] = input.split('/').map(s => parseInt(s.trim()));
+
+  if (!year || !month) {
+    ui.alert('入力形式が正しくありません');
+    return;
   }
+
+  // ステップ2: 月間公休数入力
+  const holidaysResponse = ui.prompt(
+    'シフト案作成 - ステップ2/2',
+    '月間公休日数を入力してください (例: 9)\n' +
+    '\n' +
+    '💡 計算式: 月間出勤日数上限 = 暦日数 - 公休日数\n' +
+    `   ${new Date(year, month, 0).getDate()}日（${year}年${month}月の暦日数） - [公休日数] = 目標勤務日数\n` +
+    '\n' +
+    'デフォルト: 9日',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (holidaysResponse.getSelectedButton() !== ui.Button.OK) return;
+
+  let monthlyHolidays = parseFloat(holidaysResponse.getResponseText().trim());
+
+  // デフォルト値の設定
+  if (!monthlyHolidays || monthlyHolidays <= 0) {
+    monthlyHolidays = 9;
+  }
+
+  // シフト案作成実行
+  const result = createShiftDraft(year, month, monthlyHolidays);
+  ui.alert(result.message);
 }
 
 /**

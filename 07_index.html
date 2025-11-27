@@ -463,6 +463,40 @@
 
       // ロック状態をチェック
       checkSubmissionLock(year, month);
+
+      // 公休上限を表示
+      displayHolidayLimit(year, month);
+    }
+
+    // 公休上限を表示
+    function displayHolidayLimit(year, month) {
+      const configKey = `MONTHLY_HOLIDAYS_${year}${String(month).padStart(2, '0')}`;
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          const maxHolidays = result.value ? parseFloat(result.value) : 9;
+          const daysInMonth = new Date(year, month, 0).getDate();
+
+          // カレンダーの上に情報を表示
+          const calendar = document.getElementById('calendar');
+          const infoDiv = document.createElement('div');
+          infoDiv.className = 'mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm';
+          infoDiv.innerHTML = `
+            <p class="font-semibold text-blue-800">📅 ${year}年${month}月の情報</p>
+            <p class="text-blue-700">• 暦日数: ${daysInMonth}日</p>
+            <p class="text-blue-700">• 月間公休上限: <span class="font-bold text-lg">${maxHolidays}日</span></p>
+            <p class="text-blue-700">• 現在選択中: <span id="selectedCount" class="font-bold text-lg">${selectedDates.length}日</span></p>
+          `;
+
+          // 既存の情報表示があれば削除
+          const existingInfo = calendar.previousElementSibling;
+          if (existingInfo && existingInfo.classList.contains('bg-blue-50')) {
+            existingInfo.remove();
+          }
+
+          calendar.parentNode.insertBefore(infoDiv, calendar);
+        })
+        .apiGetConfig(configKey);
     }
 
     // 提出ロック状態をチェック
@@ -547,9 +581,15 @@
       const targetMonth = document.getElementById('targetMonth').value;
       const [year, month] = targetMonth.split('-').map(Number);
       renderCalendar(year, month, selectedDates.map(d => ({ '日付': new Date(year, month - 1, d) })));
+
+      // 選択中の日数を更新
+      const selectedCountElem = document.getElementById('selectedCount');
+      if (selectedCountElem) {
+        selectedCountElem.textContent = `${selectedDates.length}日`;
+      }
     }
 
-    // 休み希望保存
+    // 休み希望保存（上限チェック付き）
     function saveHolidayRequest() {
       if (selectedDates.length === 0) {
         alert('日付を選択してください');
@@ -560,29 +600,78 @@
       const [year, month] = targetMonth.split('-').map(Number);
       const notes = document.getElementById('requestNotes').value;
 
-      // DateオブジェクトをISO文字列に変換（GASで受け取れる形式に）
-      const dateList = selectedDates.map(day => {
-        const date = new Date(year, month - 1, day);
-        return date.toISOString();
-      });
+      // 上限チェック: 月間公休数を取得
+      const configKey = `MONTHLY_HOLIDAYS_${year}${String(month).padStart(2, '0')}`;
 
       showLoading();
 
+      // まず公休数の上限を取得
       google.script.run
-        .withSuccessHandler(function(result) {
-          hideLoading();
-          if (result && result.success) {
-            showMessage('holidayMessage', result.message, 'success');
-          } else {
-            showMessage('holidayMessage', result ? result.message : 'エラーが発生しました', 'error');
+        .withSuccessHandler(function(configResult) {
+          // デフォルト9日
+          const maxHolidays = configResult.value ? parseFloat(configResult.value) : 9;
+
+          // 上限チェック
+          if (selectedDates.length > maxHolidays) {
+            hideLoading();
+            alert(`⚠️ 休みすぎです！\n\n選択された日数: ${selectedDates.length}日\n月間公休上限: ${maxHolidays}日\n\n公休上限を超えています。日数を減らしてください。`);
+            return;
           }
+
+          // 上限内なので保存処理を実行
+          const dateList = selectedDates.map(day => {
+            const date = new Date(year, month - 1, day);
+            return date.toISOString();
+          });
+
+          google.script.run
+            .withSuccessHandler(function(result) {
+              hideLoading();
+              if (result && result.success) {
+                showMessage('holidayMessage', result.message, 'success');
+              } else {
+                showMessage('holidayMessage', result ? result.message : 'エラーが発生しました', 'error');
+              }
+            })
+            .withFailureHandler(function(error) {
+              hideLoading();
+              showMessage('holidayMessage', 'エラーが発生しました', 'error');
+              console.error(error);
+            })
+            .apiSaveHolidayRequest(currentSession.name, dateList, notes);
         })
         .withFailureHandler(function(error) {
           hideLoading();
-          showMessage('holidayMessage', 'エラーが発生しました', 'error');
-          console.error(error);
+          console.error('設定取得エラー:', error);
+          // エラーでもデフォルト値9日で続行
+          if (selectedDates.length > 9) {
+            alert(`⚠️ 休みすぎです！\n\n選択された日数: ${selectedDates.length}日\nデフォルト公休上限: 9日\n\n公休上限を超えています。日数を減らしてください。`);
+            return;
+          }
+
+          // 保存処理を実行
+          const dateList = selectedDates.map(day => {
+            const date = new Date(year, month - 1, day);
+            return date.toISOString();
+          });
+
+          google.script.run
+            .withSuccessHandler(function(result) {
+              hideLoading();
+              if (result && result.success) {
+                showMessage('holidayMessage', result.message, 'success');
+              } else {
+                showMessage('holidayMessage', result ? result.message : 'エラーが発生しました', 'error');
+              }
+            })
+            .withFailureHandler(function(error) {
+              hideLoading();
+              showMessage('holidayMessage', 'エラーが発生しました', 'error');
+              console.error(error);
+            })
+            .apiSaveHolidayRequest(currentSession.name, dateList, notes);
         })
-        .apiSaveHolidayRequest(currentSession.name, dateList, notes);
+        .apiGetConfig(configKey);
     }
 
     // 休み希望クリア
