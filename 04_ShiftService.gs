@@ -31,11 +31,11 @@ function createShiftDraft(year, month) {
       });
     });
 
-    // ランダムにシフトを配置（たたき台）
-    assignShiftsRandomly(workSheet, staff, daysInMonth);
+    // 最適化アルゴリズムでシフトを配置
+    const result = assignShiftsWithOptimization(workSheet, staff, year, month, daysInMonth);
 
     console.log('シフト案作成完了');
-    return { success: true, message: 'シフト案を作成しました' };
+    return result;
 
   } catch (e) {
     console.error('シフト案作成エラー:', e);
@@ -119,38 +119,251 @@ function initializeWorkSheet(year, month, staff, daysInMonth) {
 }
 
 /**
- * ランダムにシフトを配置（たたき台レベル）
+ * 最適化アルゴリズムでシフトを配置
+ * 制約条件を考慮した貪欲法ベースのシフト生成
  */
-function assignShiftsRandomly(sheet, staff, daysInMonth) {
-  const shiftTypes = ['早出', '日勤', '遅出', '夜勤'];
+function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth) {
+  try {
+    // シフトデータを2次元配列で管理（高速化）
+    const shiftData = [];
+    const staffCount = staff.length;
 
-  for (let day = 1; day <= daysInMonth; day++) {
-    for (let i = 0; i < staff.length; i++) {
-      const currentValue = sheet.getRange(i + 2, day + 2).getValue();  // グループ列追加により+2に変更
-
-      // 休み希望が既に入っている場合はスキップ
-      if (currentValue === '休み') continue;
-
-      const person = staff[i];
-
-      // 勤務配慮ありの場合は夜勤を除外
-      let availableShifts = [...shiftTypes];
-      if (person['勤務配慮'] === true || person['勤務配慮'] === 'TRUE') {
-        availableShifts = availableShifts.filter(s => s !== '夜勤');
+    // 現在のシート状態を読み込み（休み希望が既に入っている）
+    for (let i = 0; i < staffCount; i++) {
+      shiftData[i] = [];
+      for (let day = 1; day <= daysInMonth; day++) {
+        const currentValue = sheet.getRange(i + 2, day + 2).getValue();
+        shiftData[i][day - 1] = currentValue || '';
       }
+    }
 
-      // ランダムでシフトを割り当て（休みも含む）
-      const random = Math.random();
-      if (random < 0.3) {
-        // 30%の確率で休み
-        sheet.getRange(i + 2, day + 2).setValue('休み');  // グループ列追加により+2に変更
-      } else {
-        // ランダムでシフト選択
-        const shiftIndex = Math.floor(Math.random() * availableShifts.length);
-        sheet.getRange(i + 2, day + 2).setValue(availableShifts[shiftIndex]);  // グループ列追加により+2に変更
+    // フェーズ1: 夜勤を割り当て（最も制約が厳しい）
+    assignNightShifts(shiftData, staff, daysInMonth);
+
+    // フェーズ2: 日勤系シフト（早出・日勤・遅出）を割り当て
+    assignDayShifts(shiftData, staff, daysInMonth);
+
+    // フェーズ3: 残りを休みで埋める
+    fillRemainingWithRest(shiftData, staff, daysInMonth);
+
+    // シートに一括書き込み（高速化）
+    const writeData = [];
+    for (let i = 0; i < staffCount; i++) {
+      writeData[i] = shiftData[i];
+    }
+
+    if (writeData.length > 0) {
+      sheet.getRange(2, 3, staffCount, daysInMonth).setValues(writeData);
+    }
+
+    console.log('最適化シフト割り当て完了');
+    return { success: true, message: 'ルールベースでシフト案を作成しました' };
+
+  } catch (e) {
+    console.error('最適化シフト割り当てエラー:', e);
+    return { success: false, message: 'シフト生成エラー: ' + e.message };
+  }
+}
+
+/**
+ * フェーズ1: 夜勤シフトの割り当て
+ */
+function assignNightShifts(shiftData, staff, daysInMonth) {
+  const NIGHT_SHIFTS_PER_DAY = 2;  // 1日あたりの夜勤人数目標
+
+  // 夜勤可能な職員リスト（勤務配慮なし）
+  const nightShiftCapable = staff.filter((p, i) => {
+    return !(p['勤務配慮'] === true || p['勤務配慮'] === 'TRUE');
+  }).map((p, originalIndex) => {
+    return staff.findIndex(s => s['職員ID'] === p['職員ID']);
+  });
+
+  // 資格者リスト
+  const qualifiedStaff = staff.map((p, i) => {
+    return (p['喀痰吸引資格者'] === true || p['喀痰吸引資格者'] === 'TRUE') ? i : -1;
+  }).filter(i => i >= 0);
+
+  for (let day = 0; day < daysInMonth; day++) {
+    let assignedNightShifts = 0;
+    let hasQualifiedStaff = false;
+
+    // まず資格者を1名割り当て
+    for (const staffIndex of qualifiedStaff) {
+      if (!nightShiftCapable.includes(staffIndex)) continue;
+
+      if (canAssignShift(shiftData, staff, staffIndex, day, '夜勤')) {
+        shiftData[staffIndex][day] = '夜勤';
+        assignedNightShifts++;
+        hasQualifiedStaff = true;
+        break;
+      }
+    }
+
+    // 残りの夜勤枠を埋める
+    for (const staffIndex of nightShiftCapable) {
+      if (assignedNightShifts >= NIGHT_SHIFTS_PER_DAY) break;
+
+      if (shiftData[staffIndex][day] === '' && canAssignShift(shiftData, staff, staffIndex, day, '夜勤')) {
+        shiftData[staffIndex][day] = '夜勤';
+        assignedNightShifts++;
       }
     }
   }
+}
+
+/**
+ * フェーズ2: 日勤系シフトの割り当て
+ */
+function assignDayShifts(shiftData, staff, daysInMonth) {
+  const dayShiftTypes = ['早出', '日勤', '遅出'];
+  const TARGET_WORK_DAYS_PER_MONTH = 18;  // 目標勤務日数（月21日以内に収める）
+
+  for (let staffIndex = 0; staffIndex < staff.length; staffIndex++) {
+    let workDays = 0;
+
+    // 既に割り当てられている勤務日数をカウント
+    for (let day = 0; day < daysInMonth; day++) {
+      if (shiftData[staffIndex][day] !== '' && shiftData[staffIndex][day] !== '休み') {
+        workDays++;
+      }
+    }
+
+    // 空いている日にシフトを割り当て
+    for (let day = 0; day < daysInMonth; day++) {
+      if (shiftData[staffIndex][day] !== '') continue;  // 既に割り当て済み
+      if (workDays >= TARGET_WORK_DAYS_PER_MONTH) break;  // 目標勤務日数に達した
+
+      // シフトタイプをローテーション的に選択
+      const shiftType = dayShiftTypes[day % dayShiftTypes.length];
+
+      if (canAssignShift(shiftData, staff, staffIndex, day, shiftType)) {
+        shiftData[staffIndex][day] = shiftType;
+        workDays++;
+      }
+    }
+  }
+}
+
+/**
+ * フェーズ3: 残りのセルを休みで埋める
+ */
+function fillRemainingWithRest(shiftData, staff, daysInMonth) {
+  for (let staffIndex = 0; staffIndex < staff.length; staffIndex++) {
+    for (let day = 0; day < daysInMonth; day++) {
+      if (shiftData[staffIndex][day] === '') {
+        shiftData[staffIndex][day] = '休み';
+      }
+    }
+  }
+}
+
+/**
+ * 制約チェック：指定されたシフトを割り当て可能かチェック
+ */
+function canAssignShift(shiftData, staff, staffIndex, day, shiftType) {
+  // 既に何か入っている場合は不可
+  if (shiftData[staffIndex][day] !== '') return false;
+
+  // 勤務配慮者は夜勤不可
+  const person = staff[staffIndex];
+  if (shiftType === '夜勤' && (person['勤務配慮'] === true || person['勤務配慮'] === 'TRUE')) {
+    return false;
+  }
+
+  // 連勤制限チェック（6連勤以内）
+  if (!checkConsecutiveDaysConstraint(shiftData[staffIndex], day)) {
+    return false;
+  }
+
+  // 月間勤務日数上限チェック（21日以内）
+  if (!checkMonthlyWorkDaysConstraint(shiftData[staffIndex])) {
+    return false;
+  }
+
+  // インターバルルールチェック（遅出→早出禁止）
+  if (!checkIntervalConstraint(shiftData[staffIndex], day, shiftType)) {
+    return false;
+  }
+
+  // 夜勤明けルールチェック（夜勤→休→休）
+  if (!checkNightShiftRestConstraint(shiftData[staffIndex], day, shiftType)) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * 連勤制限チェック（6連勤以内）
+ */
+function checkConsecutiveDaysConstraint(staffShiftData, day) {
+  let consecutiveDays = 0;
+
+  // 指定日から遡って連勤日数をカウント
+  for (let d = day - 1; d >= 0; d--) {
+    if (staffShiftData[d] !== '' && staffShiftData[d] !== '休み') {
+      consecutiveDays++;
+    } else {
+      break;
+    }
+  }
+
+  // 6連勤以上になる場合は不可
+  return consecutiveDays < 6;
+}
+
+/**
+ * 月間勤務日数上限チェック（21日以内）
+ */
+function checkMonthlyWorkDaysConstraint(staffShiftData) {
+  let workDays = 0;
+
+  for (let d = 0; d < staffShiftData.length; d++) {
+    if (staffShiftData[d] !== '' && staffShiftData[d] !== '休み') {
+      workDays++;
+    }
+  }
+
+  // 21日以上勤務している場合は不可
+  return workDays < 21;
+}
+
+/**
+ * インターバルルールチェック（遅出→早出禁止）
+ */
+function checkIntervalConstraint(staffShiftData, day, shiftType) {
+  if (day === 0) return true;  // 初日はチェック不要
+
+  const prevShift = staffShiftData[day - 1];
+
+  // 前日が遅出で、今日が早出の場合は不可
+  if (prevShift === '遅出' && shiftType === '早出') {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * 夜勤明けルールチェック（夜勤→休→休）
+ */
+function checkNightShiftRestConstraint(staffShiftData, day, shiftType) {
+  // 前日が夜勤の場合、今日は休みでなければならない
+  if (day > 0 && staffShiftData[day - 1] === '夜勤' && shiftType !== '休み') {
+    return false;
+  }
+
+  // 前々日が夜勤の場合、今日も休みでなければならない
+  if (day > 1 && staffShiftData[day - 2] === '夜勤' && shiftType !== '休み') {
+    return false;
+  }
+
+  // 今日が夜勤の場合、前日が夜勤ではないことを確認
+  if (shiftType === '夜勤' && day > 0 && staffShiftData[day - 1] === '夜勤') {
+    return false;
+  }
+
+  return true;
 }
 
 // ============================================
