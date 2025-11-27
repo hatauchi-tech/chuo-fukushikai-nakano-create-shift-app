@@ -223,6 +223,11 @@
                   <label class="block text-sm font-medium text-gray-700 mb-1">カレンダーID</label>
                   <input type="text" id="staff_calendar_id" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
                 </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">優先順位 💡</label>
+                  <input type="number" id="staff_priority" min="1" max="10" value="3" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                  <p class="text-xs text-gray-500 mt-1">数値が小さいほど優先度が高い（例: 管理者=1、一般=3、パート=5）</p>
+                </div>
                 <div class="flex items-center">
                   <input type="checkbox" id="staff_qualified" class="mr-2">
                   <label class="text-sm font-medium text-gray-700">喀痰吸引資格者</label>
@@ -747,6 +752,7 @@
       document.getElementById('staff_login_id').value = '';
       document.getElementById('staff_password').value = '';
       document.getElementById('staff_calendar_id').value = '';
+      document.getElementById('staff_priority').value = 3;  // デフォルト: 一般職員
       document.getElementById('staff_qualified').checked = false;
       document.getElementById('staff_care_required').checked = false;
       document.getElementById('staff_active').checked = true;
@@ -763,6 +769,7 @@
       document.getElementById('staff_login_id').value = staff['ログインID'];
       document.getElementById('staff_password').value = staff['パスワード'];
       document.getElementById('staff_calendar_id').value = staff['カレンダーID'];
+      document.getElementById('staff_priority').value = staff['優先順位'] || 3;  // デフォルト3
       document.getElementById('staff_qualified').checked = staff['喀痰吸引資格者'];
       document.getElementById('staff_care_required').checked = staff['勤務配慮'];
       document.getElementById('staff_active').checked = staff['有効'];
@@ -787,6 +794,7 @@
         'ログインID': document.getElementById('staff_login_id').value,
         'パスワード': document.getElementById('staff_password').value,
         'カレンダーID': document.getElementById('staff_calendar_id').value,
+        '優先順位': parseInt(document.getElementById('staff_priority').value) || 3,
         '喀痰吸引資格者': document.getElementById('staff_qualified').checked,
         '勤務配慮': document.getElementById('staff_care_required').checked,
         '有効': document.getElementById('staff_active').checked

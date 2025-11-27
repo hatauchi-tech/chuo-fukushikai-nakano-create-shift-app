@@ -15,11 +15,11 @@ function initializeStaffSheet() {
     const headers = [
       '職員ID', '所属', '役職', 'グループ', 'カレンダーID', 'ユニット',
       '氏名', '雇用形態', '喀痰吸引資格者', '勤務配慮', '有効',
-      'ログインID', 'パスワード'
+      'ログインID', 'パスワード', '優先順位'
     ];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#e8f4f8');
-    console.log('M_職員シート初期化完了');
+    console.log('M_職員シート初期化完了（優先順位列を追加）');
   }
 
   return sheet;

@@ -125,14 +125,12 @@ function initializeWorkSheet(year, month, staff, daysInMonth) {
 }
 
 /**
- * 最適化アルゴリズムでシフトを配置
- * 制約条件を考慮した貪欲法ベースのシフト生成（グループ単位の最低人数を考慮）
+ * 新・シフト生成アルゴリズム（3段階処理）
  *
- * 【生成ロジックの優先順位】
- * 1. 最低人員配置の確保（固定枠） - 各グループ・各時間帯の最低必要人数
- * 2. 固定勤務・夜勤資格者の配置（アンカー） - 資格保有者を確実に配置
- * 3. 希望休の反映 - 従業員の希望休を優先
- * 4. 残りのシフト埋め - 空き枠を制約条件に基づいて自動充填
+ * 【処理順序】
+ * STEP1: 月間公休日数を割り当て（休み希望の優先順位調整付き）
+ * STEP2: 資格者の夜勤を割り当て
+ * STEP3: 残りのシフトを割り当て（最低人数、連勤制限、インターバル制限）
  *
  * @param {Object} sheet - 作業用シート
  * @param {Array} staff - スタッフ配列
@@ -143,124 +141,220 @@ function initializeWorkSheet(year, month, staff, daysInMonth) {
  */
 function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth, monthlyHolidays) {
   try {
-    // 目標勤務日数を計算: 月間暦日数 - 公休数
-    const targetWorkDays = daysInMonth - monthlyHolidays;
-    console.log(`目標勤務日数: ${targetWorkDays}日 (暦日${daysInMonth}日 - 公休${monthlyHolidays}日)`);
+    console.log(`\n━━━ シフト生成開始: ${year}年${month}月 ━━━`);
+    console.log(`月間公休日数: ${monthlyHolidays}日`);
+    console.log(`対象スタッフ数: ${staff.length}名\n`);
 
     // シフトデータを2次元配列で管理（高速化）
     const shiftData = [];
-    const staffCount = staff.length;
-
-    // 【優先順位3】現在のシート状態を読み込み（希望休が既に入っている）
-    for (let i = 0; i < staffCount; i++) {
-      shiftData[i] = [];
-      for (let day = 1; day <= daysInMonth; day++) {
-        const currentValue = sheet.getRange(i + 2, day + 2).getValue();
-        shiftData[i][day - 1] = currentValue || '';
-      }
-    }
-
-    // グループごとにスタッフをグループ化
-    const staffByGroup = {};
     for (let i = 0; i < staff.length; i++) {
-      const group = staff[i]['グループ'];
-      if (!staffByGroup[group]) {
-        staffByGroup[group] = [];
-      }
-      staffByGroup[group].push({ index: i, data: staff[i] });
-    }
-
-    // 【優先順位1,2】日ごとに処理: 最低人員配置 + 資格者配置
-    for (let day = 0; day < daysInMonth; day++) {
-      const date = new Date(year, month - 1, day + 1);
-      const isSunday = date.getDay() === 0;
-
-      // 全グループで資格者の夜勤を最低1名確保（グループ横断ルール）
-      let hasQualifiedNightShift = false;
-
-      // 各グループごとに最低人数を確保
-      for (let group = 1; group <= 6; group++) {
-        const groupStaff = staffByGroup[group] || [];
-
-        // 夜勤: 1名以上（資格者優先）
-        assignShiftToGroup(shiftData, staff, groupStaff, day, '夜勤', 1, true, targetWorkDays);
-
-        // 資格者の夜勤がいるかチェック
-        for (const s of groupStaff) {
-          if (shiftData[s.index][day] === '夜勤' &&
-              (s.data['喀痰吸引資格者'] === true || s.data['喀痰吸引資格者'] === 'TRUE')) {
-            hasQualifiedNightShift = true;
-          }
-        }
-
-        // 早出: 2名以上
-        assignShiftToGroup(shiftData, staff, groupStaff, day, '早出', 2, false, targetWorkDays);
-
-        // 日勤: 1名以上（日曜は0名OK）
-        if (!isSunday) {
-          assignShiftToGroup(shiftData, staff, groupStaff, day, '日勤', 1, false, targetWorkDays);
-        }
-
-        // 遅出: 1名以上
-        assignShiftToGroup(shiftData, staff, groupStaff, day, '遅出', 1, false, targetWorkDays);
-      }
-
-      // 全グループ横断で資格者の夜勤が1名もいない場合、追加で割り当て
-      if (!hasQualifiedNightShift) {
-        assignQualifiedNightShift(shiftData, staff, day);
+      shiftData[i] = [];
+      for (let day = 0; day < daysInMonth; day++) {
+        shiftData[i][day] = '';  // 初期化
       }
     }
 
-    // 【優先順位4】残りを休みで埋める
-    fillRemainingWithRest(shiftData, staff, daysInMonth);
+    // ━━━ STEP1: 月間公休日数を割り当て（優先順位調整付き） ━━━
+    console.log('【STEP1】休み希望の優先順位調整開始...');
+    assignHolidaysWithPriority(shiftData, staff, year, month, daysInMonth, monthlyHolidays);
 
-    // シートに一括書き込み（高速化）
+    // ━━━ STEP2: 資格者の夜勤を割り当て ━━━
+    console.log('\n【STEP2】資格者の夜勤割り当て開始...');
+    assignQualifiedNightShiftsFirst(shiftData, staff, daysInMonth);
+
+    // ━━━ STEP3: 残りのシフトを割り当て ━━━
+    console.log('\n【STEP3】残りシフトの割り当て開始...');
+    assignRemainingShifts(shiftData, staff, year, month, daysInMonth);
+
+    // シートに一括書き込み
     const writeData = [];
-    for (let i = 0; i < staffCount; i++) {
+    for (let i = 0; i < staff.length; i++) {
       writeData[i] = shiftData[i];
     }
 
     if (writeData.length > 0) {
-      sheet.getRange(2, 3, staffCount, daysInMonth).setValues(writeData);
+      sheet.getRange(2, 3, staff.length, daysInMonth).setValues(writeData);
     }
 
-    console.log('最適化シフト割り当て完了');
-    return { success: true, message: `グループ別最低人数を考慮したシフト案を作成しました（目標勤務日数: ${targetWorkDays}日）` };
+    console.log('\n━━━ シフト生成完了 ━━━\n');
+    return { success: true, message: `シフト案を作成しました（公休${monthlyHolidays}日/月）` };
 
   } catch (e) {
-    console.error('最適化シフト割り当てエラー:', e);
+    console.error('シフト生成エラー:', e);
     return { success: false, message: 'シフト生成エラー: ' + e.message };
   }
 }
 
+// ============================================
+// STEP1: 休み希望の優先順位調整
+// ============================================
+
 /**
- * グループ内で指定シフトを必要人数分割り当て
- * @param {Array} shiftData - シフトデータ配列
- * @param {Array} staff - 全スタッフ配列
- * @param {Array} groupStaff - グループ内のスタッフ配列
- * @param {number} day - 対象日（0-indexed）
- * @param {string} shiftType - シフト種類
- * @param {number} requiredCount - 必要人数
- * @param {boolean} qualifiedFirst - 資格者優先フラグ
- * @param {number} targetWorkDays - 目標勤務日数（参考情報）
+ * STEP1: 月間公休日数を割り当て（優先順位調整付き）
  */
-function assignShiftToGroup(shiftData, staff, groupStaff, day, shiftType, requiredCount, qualifiedFirst, targetWorkDays) {
+function assignHolidaysWithPriority(shiftData, staff, year, month, daysInMonth, monthlyHolidays) {
+  // 各スタッフの休み希望を収集
+  const holidayRequests = [];
+
+  for (let i = 0; i < staff.length; i++) {
+    const person = staff[i];
+    const requests = getHolidayRequestByNameAndMonth(person['氏名'], year, month);
+    const priority = person['優先順位'] || 99;  // 優先順位がない場合は最低優先度
+
+    requests.forEach(req => {
+      const day = new Date(req['日付']).getDate() - 1;  // 0-indexed
+      holidayRequests.push({
+        staffIndex: i,
+        staffName: person['氏名'],
+        day: day,
+        priority: priority
+      });
+    });
+  }
+
+  // 日付ごとにグループ化して優先順位でソート
+  const requestsByDay = {};
+  for (let day = 0; day < daysInMonth; day++) {
+    requestsByDay[day] = [];
+  }
+
+  holidayRequests.forEach(req => {
+    requestsByDay[req.day].push(req);
+  });
+
+  // 各日の重複をチェックして優先順位で調整
+  let totalAssigned = 0;
+  for (let day = 0; day < daysInMonth; day++) {
+    const requests = requestsByDay[day];
+
+    // 優先順位でソート（数値が小さいほど優先度が高い）
+    requests.sort((a, b) => a.priority - b.priority);
+
+    // 優先順位が高い人から割り当て
+    requests.forEach(req => {
+      if (shiftData[req.staffIndex][req.day] === '') {
+        shiftData[req.staffIndex][req.day] = '休み';
+        totalAssigned++;
+      }
+    });
+  }
+
+  console.log(`休み希望を${totalAssigned}件割り当てました`);
+}
+
+// ============================================
+// STEP2: 資格者の夜勤割り当て
+// ============================================
+
+/**
+ * STEP2: 資格者の夜勤を優先的に割り当て
+ */
+function assignQualifiedNightShiftsFirst(shiftData, staff, daysInMonth) {
+  // 資格者リスト
+  const qualifiedStaff = staff.map((p, i) => {
+    const isQualified = (p['喀痰吸引資格者'] === true || p['喀痰吸引資格者'] === 'TRUE');
+    const canNightShift = !(p['勤務配慮'] === true || p['勤務配慮'] === 'TRUE');
+    return (isQualified && canNightShift) ? i : -1;
+  }).filter(i => i >= 0);
+
+  console.log(`資格者（夜勤可能）: ${qualifiedStaff.length}名`);
+
   let assignedCount = 0;
 
-  // 資格者優先の場合、まず資格者を割り当て
-  if (qualifiedFirst) {
-    for (const s of groupStaff) {
-      if (assignedCount >= requiredCount) break;
+  // 各日に資格者の夜勤を最低1名配置
+  for (let day = 0; day < daysInMonth; day++) {
+    let hasQualified = false;
 
-      const isQualified = (s.data['喀痰吸引資格者'] === true || s.data['喀痰吸引資格者'] === 'TRUE');
-      if (isQualified && shiftData[s.index][day] === '' && canAssignShift(shiftData, staff, s.index, day, shiftType)) {
-        shiftData[s.index][day] = shiftType;
+    for (const staffIndex of qualifiedStaff) {
+      if (shiftData[staffIndex][day] === '' && canAssignShift(shiftData, staff, staffIndex, day, '夜勤')) {
+        shiftData[staffIndex][day] = '夜勤';
+        hasQualified = true;
         assignedCount++;
+        break;
       }
+    }
+
+    if (!hasQualified) {
+      console.log(`⚠️ 警告: ${day + 1}日に資格者の夜勤を配置できませんでした`);
     }
   }
 
-  // 残りを通常のスタッフで埋める
+  console.log(`資格者の夜勤を${assignedCount}件割り当てました`);
+}
+
+// ============================================
+// STEP3: 残りのシフト割り当て
+// ============================================
+
+/**
+ * STEP3: 残りのシフトを最低人数・連勤制限・インターバル制限を考慮して割り当て
+ */
+function assignRemainingShifts(shiftData, staff, year, month, daysInMonth) {
+  // グループごとにスタッフをグループ化
+  const staffByGroup = {};
+  for (let i = 0; i < staff.length; i++) {
+    const group = staff[i]['グループ'];
+    if (!staffByGroup[group]) {
+      staffByGroup[group] = [];
+    }
+    staffByGroup[group].push({ index: i, data: staff[i] });
+  }
+
+  let assignedCount = 0;
+
+  // 日ごとに処理
+  for (let day = 0; day < daysInMonth; day++) {
+    const date = new Date(year, month - 1, day + 1);
+    const isSunday = date.getDay() === 0;
+
+    // 各グループごとに最低人数を確保
+    for (let group = 1; group <= 6; group++) {
+      const groupStaff = staffByGroup[group] || [];
+
+      // 夜勤: 1名以上（既に資格者が割り当て済みの場合はスキップ）
+      const nightShiftCount = countShiftInGroup(shiftData, groupStaff, day, '夜勤');
+      if (nightShiftCount < 1) {
+        assignedCount += assignShiftToGroupSimple(shiftData, staff, groupStaff, day, '夜勤', 1 - nightShiftCount);
+      }
+
+      // 早出: 2名以上
+      assignedCount += assignShiftToGroupSimple(shiftData, staff, groupStaff, day, '早出', 2);
+
+      // 日勤: 1名以上（日曜は0名OK）
+      if (!isSunday) {
+        assignedCount += assignShiftToGroupSimple(shiftData, staff, groupStaff, day, '日勤', 1);
+      }
+
+      // 遅出: 1名以上
+      assignedCount += assignShiftToGroupSimple(shiftData, staff, groupStaff, day, '遅出', 1);
+    }
+  }
+
+  // 残りを休みで埋める
+  fillRemainingWithRest(shiftData, staff, daysInMonth);
+
+  console.log(`残りシフトを${assignedCount}件割り当てました`);
+}
+
+/**
+ * グループ内の特定シフトの人数をカウント
+ */
+function countShiftInGroup(shiftData, groupStaff, day, shiftType) {
+  let count = 0;
+  for (const s of groupStaff) {
+    if (shiftData[s.index][day] === shiftType) {
+      count++;
+    }
+  }
+  return count;
+}
+
+/**
+ * グループ内に指定シフトを必要人数分割り当て（シンプル版）
+ */
+function assignShiftToGroupSimple(shiftData, staff, groupStaff, day, shiftType, requiredCount) {
+  let assignedCount = 0;
+
   for (const s of groupStaff) {
     if (assignedCount >= requiredCount) break;
 
@@ -269,21 +363,8 @@ function assignShiftToGroup(shiftData, staff, groupStaff, day, shiftType, requir
       assignedCount++;
     }
   }
-}
 
-/**
- * 全グループ横断で資格者の夜勤を1名確保
- */
-function assignQualifiedNightShift(shiftData, staff, day) {
-  for (let i = 0; i < staff.length; i++) {
-    const isQualified = (staff[i]['喀痰吸引資格者'] === true || staff[i]['喀痰吸引資格者'] === 'TRUE');
-
-    if (isQualified && shiftData[i][day] === '' && canAssignShift(shiftData, staff, i, day, '夜勤')) {
-      shiftData[i][day] = '夜勤';
-      console.log(`資格者の夜勤を追加割り当て: ${staff[i]['氏名']} (day ${day + 1})`);
-      break;
-    }
-  }
+  return assignedCount;
 }
 
 /**
