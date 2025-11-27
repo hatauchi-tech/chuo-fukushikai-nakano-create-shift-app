@@ -187,6 +187,64 @@ function getShiftByName(shiftName) {
   return allShifts.find(shift => shift['シフト名'] === shiftName);
 }
 
+// シフトマスタを保存/更新
+function saveShiftMaster(shiftData) {
+  try {
+    const sheet = initializeShiftMasterSheet();
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+
+    // シフトIDで既存レコードを検索
+    let rowIndex = -1;
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === shiftData['シフトID']) {
+        rowIndex = i;
+        break;
+      }
+    }
+
+    const rowData = headers.map(header => shiftData[header] || '');
+
+    if (rowIndex >= 0) {
+      // 更新
+      sheet.getRange(rowIndex + 1, 1, 1, rowData.length).setValues([rowData]);
+      console.log(`シフトマスタ更新: ${shiftData['シフト名']}`);
+    } else {
+      // 新規追加
+      sheet.appendRow(rowData);
+      console.log(`シフトマスタ追加: ${shiftData['シフト名']}`);
+    }
+
+    return true;
+  } catch (e) {
+    console.error('シフトマスタ保存エラー:', e);
+    throw e;
+  }
+}
+
+// シフトマスタを削除
+function deleteShiftMaster(shiftId) {
+  try {
+    const sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_MASTER);
+    const data = sheet.getDataRange().getValues();
+
+    // シフトIDで該当行を検索
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === shiftId) {
+        sheet.deleteRow(i + 1);
+        console.log(`シフトマスタ削除: ${shiftId}`);
+        return true;
+      }
+    }
+
+    console.log(`シフトマスタ削除失敗: ${shiftId} が見つかりません`);
+    return false;
+  } catch (e) {
+    console.error('シフトマスタ削除エラー:', e);
+    throw e;
+  }
+}
+
 // ============================================
 // T_シフト休み希望関連
 // ============================================
@@ -306,8 +364,9 @@ function initializeConfirmedShiftSheet() {
 
   if (sheet.getLastRow() === 0) {
     const headers = [
-      '確定シフトID', '氏名', 'グループ', '日付', 'シフト名',
-      '開始時間', '終了時間', '登録日時', 'カレンダーイベントID'
+      '確定シフトID', '氏名', 'グループ', 'シフト名',
+      '勤務開始日', '開始時間', '勤務終了日', '終了時間',
+      '登録日時', 'カレンダーイベントID'
     ];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#fce5cd');
@@ -323,22 +382,23 @@ function saveConfirmedShift(shiftData) {
     const sheet = initializeConfirmedShiftSheet();
     const timestamp = new Date();
 
-    const shiftId = `CONFIRMED_${shiftData['氏名']}_${Utilities.formatDate(shiftData['日付'], Session.getScriptTimeZone(), 'yyyyMMdd')}_${timestamp.getTime()}`;
+    const shiftId = `CONFIRMED_${shiftData['氏名']}_${Utilities.formatDate(shiftData['勤務開始日'], Session.getScriptTimeZone(), 'yyyyMMdd')}_${timestamp.getTime()}`;
 
     const rowData = [
       shiftId,
       shiftData['氏名'],
       shiftData['グループ'],
-      shiftData['日付'],
       shiftData['シフト名'],
+      shiftData['勤務開始日'],
       shiftData['開始時間'],
+      shiftData['勤務終了日'],
       shiftData['終了時間'],
       timestamp,
       shiftData['カレンダーイベントID'] || ''
     ];
 
     sheet.appendRow(rowData);
-    console.log(`確定シフト保存: ${shiftData['氏名']} ${shiftData['日付']}`);
+    console.log(`確定シフト保存: ${shiftData['氏名']} ${Utilities.formatDate(shiftData['勤務開始日'], Session.getScriptTimeZone(), 'yyyy/MM/dd')} - ${Utilities.formatDate(shiftData['勤務終了日'], Session.getScriptTimeZone(), 'yyyy/MM/dd')}`);
 
     return shiftId;
   } catch (e) {
@@ -356,10 +416,10 @@ function deleteConfirmedShiftByMonth(year, month) {
     const rowsToDelete = [];
 
     for (let i = data.length - 1; i >= 1; i--) {
-      const rowDate = data[i][3];
+      const startDate = data[i][4];  // 勤務開始日（インデックス4）
 
-      if (rowDate) {
-        const date = new Date(rowDate);
+      if (startDate) {
+        const date = new Date(startDate);
         if (date.getFullYear() == year && date.getMonth() + 1 == month) {
           rowsToDelete.push(i + 1);
         }
@@ -379,6 +439,100 @@ function deleteConfirmedShiftByMonth(year, month) {
   }
 }
 
+// 確定シフトを月別・グループ別に削除
+function deleteConfirmedShiftByMonthAndGroup(year, month, selectedGroups) {
+  try {
+    const sheet = getOrCreateSheet(SHEET_NAMES.CONFIRMED_SHIFT);
+    const data = sheet.getDataRange().getValues();
+
+    const rowsToDelete = [];
+
+    for (let i = data.length - 1; i >= 1; i--) {
+      const group = data[i][2];  // グループ（インデックス2）
+      const startDate = data[i][4];  // 勤務開始日（インデックス4）
+
+      if (startDate && selectedGroups.includes(parseInt(group))) {
+        const date = new Date(startDate);
+        if (date.getFullYear() == year && date.getMonth() + 1 == month) {
+          rowsToDelete.push(i + 1);
+        }
+      }
+    }
+
+    // 逆順で削除（行番号のずれを防ぐ）
+    rowsToDelete.reverse().forEach(rowIndex => {
+      sheet.deleteRow(rowIndex);
+    });
+
+    console.log(`確定シフト削除（グループ選択）: ${year}年${month}月 グループ${selectedGroups.join(',')} (${rowsToDelete.length}件)`);
+    return rowsToDelete.length;
+  } catch (e) {
+    console.error('確定シフト削除エラー（グループ選択）:', e);
+    throw e;
+  }
+}
+
+// 確定シフトを一括保存（高速化）
+function saveConfirmedShiftsBulk(shiftsData) {
+  try {
+    const sheet = initializeConfirmedShiftSheet();
+    const timestamp = new Date();
+
+    if (shiftsData.length === 0) {
+      return [];
+    }
+
+    // データテーブルを作成
+    const rows = [];
+    const savedShifts = [];
+
+    shiftsData.forEach(shiftData => {
+      const shiftId = `CONFIRMED_${shiftData['氏名']}_${Utilities.formatDate(shiftData['勤務開始日'], Session.getScriptTimeZone(), 'yyyyMMdd')}_${timestamp.getTime()}`;
+
+      const row = [
+        shiftId,
+        shiftData['氏名'],
+        shiftData['グループ'],
+        shiftData['シフト名'],
+        shiftData['勤務開始日'],
+        shiftData['開始時間'],
+        shiftData['勤務終了日'],
+        shiftData['終了時間'],
+        timestamp,
+        ''  // カレンダーイベントID（後で更新）
+      ];
+
+      rows.push(row);
+
+      // 返却用データ
+      savedShifts.push({
+        shiftId: shiftId,
+        '氏名': shiftData['氏名'],
+        'グループ': shiftData['グループ'],
+        'シフト名': shiftData['シフト名'],
+        '勤務開始日': shiftData['勤務開始日'],
+        '開始時間': shiftData['開始時間'],
+        '勤務終了日': shiftData['勤務終了日'],
+        '終了時間': shiftData['終了時間'],
+        'calendarId': shiftData['カレンダーID']
+      });
+    });
+
+    // 配列一括貼り付け（高速化）
+    if (rows.length > 0) {
+      const lastRow = sheet.getLastRow();
+      sheet.getRange(lastRow + 1, 1, rows.length, rows[0].length).setValues(rows);
+      console.log(`確定シフト一括保存: ${rows.length}件`);
+    }
+
+    return savedShifts;
+
+  } catch (e) {
+    console.error('確定シフト一括保存エラー:', e);
+    throw e;
+  }
+}
+
 // カレンダーイベントIDを更新
 function updateCalendarEventId(shiftId, eventId) {
   try {
@@ -387,7 +541,7 @@ function updateCalendarEventId(shiftId, eventId) {
 
     for (let i = 1; i < data.length; i++) {
       if (data[i][0] === shiftId) {
-        sheet.getRange(i + 1, 9).setValue(eventId);
+        sheet.getRange(i + 1, 10).setValue(eventId);  // 10列目（インデックス9）に変更
         console.log(`イベントID更新: ${shiftId} -> ${eventId}`);
         return true;
       }

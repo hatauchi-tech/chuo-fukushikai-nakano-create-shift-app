@@ -29,27 +29,39 @@ function registerShiftToCalendar(year, month) {
     // 各スタッフのシフトをカレンダーに登録
     for (let i = 1; i < data.length; i++) {
       const name = data[i][0];
+      const group = data[i][1];  // グループ列を読み取り
       const person = staff.find(s => s['氏名'] === name);
 
       if (!person) continue;
 
       for (let day = 1; day <= daysInMonth; day++) {
-        const shiftName = data[i][day];
+        const shiftName = data[i][day + 1];  // グループ列追加により+1に変更
 
         if (shiftName && shiftName !== '休み' && shiftName !== '') {
-          const date = new Date(year, month - 1, day);
+          const startDate = new Date(year, month - 1, day);
           const shiftInfo = getShiftByName(shiftName);
 
           if (!shiftInfo) continue;
+
+          // 終了日を計算（夜勤など、終了時刻が開始時刻より早い場合は翌日）
+          let endDate = new Date(startDate);
+          const startTime = shiftInfo['開始時間'] || '00:00';
+          const endTime = shiftInfo['終了時間'] || '00:00';
+
+          // 時刻を比較して、終了時刻が開始時刻より早い場合は翌日
+          if (endTime && startTime && endTime < startTime) {
+            endDate.setDate(endDate.getDate() + 1);
+          }
 
           // 確定シフトをDBに保存
           const shiftData = {
             '氏名': name,
             'グループ': person['グループ'],
-            '日付': date,
             'シフト名': shiftName,
-            '開始時間': shiftInfo['開始時間'],
-            '終了時間': shiftInfo['終了時間']
+            '勤務開始日': startDate,
+            '開始時間': startTime,
+            '勤務終了日': endDate,
+            '終了時間': endTime
           };
 
           const shiftId = saveConfirmedShift(shiftData);
@@ -59,7 +71,8 @@ function registerShiftToCalendar(year, month) {
             const eventId = createOrUpdateCalendarEvent(
               person['カレンダーID'],
               name,
-              date,
+              startDate,
+              endDate,
               shiftInfo,
               null // 新規作成
             );
@@ -88,15 +101,121 @@ function registerShiftToCalendar(year, month) {
 }
 
 /**
+ * シフトをカレンダーに登録（グループ選択版・高速化）
+ * @param {number} year - 対象年
+ * @param {number} month - 対象月
+ * @param {Array} selectedGroups - 処理対象グループの配列 [1,2,3,4,5,6]
+ */
+function registerShiftToCalendarByGroup(year, month, selectedGroups) {
+  try {
+    console.log(`カレンダー登録開始（グループ選択版）: ${year}年${month}月 (グループ: ${selectedGroups.join(',')})`);
+
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.WORK_SHEET);
+    if (!sheet) {
+      return { success: false, message: '作業用シートが見つかりません' };
+    }
+
+    const staff = getActiveStaff();
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const data = sheet.getDataRange().getValues();
+
+    // まず既存の確定シフトを削除（選択されたグループのみ）
+    deleteConfirmedShiftByMonthAndGroup(year, month, selectedGroups);
+
+    let registeredCount = 0;
+    const shiftsToSave = [];  // 一括保存用の配列
+
+    // 各スタッフのシフトを処理（選択されたグループのみ）
+    for (let i = 1; i < data.length; i++) {
+      const name = data[i][0];
+      const group = data[i][1];
+      const person = staff.find(s => s['氏名'] === name);
+
+      if (!person) continue;
+
+      // 選択されたグループのみ処理
+      if (!selectedGroups.includes(parseInt(group))) continue;
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const shiftName = data[i][day + 1];  // グループ列追加により+1
+
+        if (shiftName && shiftName !== '休み' && shiftName !== '') {
+          const startDate = new Date(year, month - 1, day);
+          const shiftInfo = getShiftByName(shiftName);
+
+          if (!shiftInfo) continue;
+
+          // 終了日を計算
+          let endDate = new Date(startDate);
+          const startTime = shiftInfo['開始時間'] || '00:00';
+          const endTime = shiftInfo['終了時間'] || '00:00';
+
+          if (endTime && startTime && endTime < startTime) {
+            endDate.setDate(endDate.getDate() + 1);
+          }
+
+          // 確定シフトデータを配列に追加（後で一括保存）
+          shiftsToSave.push({
+            '氏名': name,
+            'グループ': group,
+            'シフト名': shiftName,
+            '勤務開始日': startDate,
+            '開始時間': startTime,
+            '勤務終了日': endDate,
+            '終了時間': endTime,
+            'カレンダーID': person['カレンダーID']
+          });
+        }
+      }
+    }
+
+    // 確定シフトを一括保存（高速化）
+    const savedShifts = saveConfirmedShiftsBulk(shiftsToSave);
+
+    // カレンダーに登録
+    savedShifts.forEach((shiftData, index) => {
+      if (shiftData.calendarId) {
+        const eventId = createOrUpdateCalendarEvent(
+          shiftData.calendarId,
+          shiftData['氏名'],
+          shiftData['勤務開始日'],
+          shiftData['勤務終了日'],
+          { 'シフト名': shiftData['シフト名'], '開始時間': shiftData['開始時間'], '終了時間': shiftData['終了時間'] },
+          null
+        );
+
+        if (eventId) {
+          updateCalendarEventId(shiftData.shiftId, eventId);
+          registeredCount++;
+        }
+      }
+    });
+
+    console.log(`カレンダー登録完了（グループ選択版）: ${registeredCount}件`);
+
+    return {
+      success: true,
+      count: registeredCount,
+      message: `${registeredCount}件のシフトをカレンダーに登録しました`
+    };
+
+  } catch (e) {
+    console.error('カレンダー登録エラー（グループ選択版）:', e);
+    return { success: false, message: 'エラーが発生しました: ' + e.message };
+  }
+}
+
+/**
  * カレンダーイベントを作成または更新
  * @param {string} calendarId - カレンダーID
  * @param {string} staffName - スタッフ名
- * @param {Date} date - 日付
+ * @param {Date} startDate - 勤務開始日
+ * @param {Date} endDate - 勤務終了日
  * @param {object} shiftInfo - シフト情報
  * @param {string} existingEventId - 既存のイベントID（更新時）
  * @return {string} イベントID
  */
-function createOrUpdateCalendarEvent(calendarId, staffName, date, shiftInfo, existingEventId) {
+function createOrUpdateCalendarEvent(calendarId, staffName, startDate, endDate, shiftInfo, existingEventId) {
   try {
     const calendar = CalendarApp.getCalendarById(calendarId);
 
@@ -106,27 +225,15 @@ function createOrUpdateCalendarEvent(calendarId, staffName, date, shiftInfo, exi
     }
 
     const title = `【${shiftInfo['シフト名']}】${staffName}`;
-    let startTime, endTime;
 
-    // 夜勤の場合は翌朝まで
-    if (shiftInfo['シフト名'] === '夜勤') {
-      startTime = new Date(date);
-      const [startHour, startMinute] = shiftInfo['開始時間'].split(':');
-      startTime.setHours(parseInt(startHour), parseInt(startMinute), 0);
+    // 開始時刻と終了時刻を設定
+    const startTime = new Date(startDate);
+    const [startHour, startMinute] = (shiftInfo['開始時間'] || '00:00').split(':');
+    startTime.setHours(parseInt(startHour), parseInt(startMinute), 0);
 
-      endTime = new Date(date);
-      endTime.setDate(endTime.getDate() + 1); // 翌日
-      const [endHour, endMinute] = shiftInfo['終了時間'].split(':');
-      endTime.setHours(parseInt(endHour), parseInt(endMinute), 0);
-    } else {
-      startTime = new Date(date);
-      const [startHour, startMinute] = shiftInfo['開始時間'].split(':');
-      startTime.setHours(parseInt(startHour), parseInt(startMinute), 0);
-
-      endTime = new Date(date);
-      const [endHour, endMinute] = shiftInfo['終了時間'].split(':');
-      endTime.setHours(parseInt(endHour), parseInt(endMinute), 0);
-    }
+    const endTime = new Date(endDate);
+    const [endHour, endMinute] = (shiftInfo['終了時間'] || '00:00').split(':');
+    endTime.setHours(parseInt(endHour), parseInt(endMinute), 0);
 
     let event;
 

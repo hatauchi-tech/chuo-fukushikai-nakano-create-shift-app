@@ -27,15 +27,15 @@ function createShiftDraft(year, month) {
       const holidays = getHolidayRequestByNameAndMonth(person['氏名'], year, month);
       holidays.forEach(holiday => {
         const day = new Date(holiday['日付']).getDate();
-        workSheet.getRange(index + 2, day + 1).setValue('休み');
+        workSheet.getRange(index + 2, day + 2).setValue('休み');  // グループ列追加により+2に変更
       });
     });
 
-    // ランダムにシフトを配置（たたき台）
-    assignShiftsRandomly(workSheet, staff, daysInMonth);
+    // 最適化アルゴリズムでシフトを配置
+    const result = assignShiftsWithOptimization(workSheet, staff, year, month, daysInMonth);
 
     console.log('シフト案作成完了');
-    return { success: true, message: 'シフト案を作成しました' };
+    return result;
 
   } catch (e) {
     console.error('シフト案作成エラー:', e);
@@ -44,7 +44,7 @@ function createShiftDraft(year, month) {
 }
 
 /**
- * 作業用シートを初期化
+ * 作業用シートを初期化（高速化・改善版）
  */
 function initializeWorkSheet(year, month, staff, daysInMonth) {
   const ss = getSpreadsheet();
@@ -57,65 +57,313 @@ function initializeWorkSheet(year, month, staff, daysInMonth) {
   }
   sheet = ss.insertSheet(sheetName);
 
-  // ヘッダー行を作成
-  const headers = ['氏名'];
+  // データテーブル全体を配列で作成（高速化）
+  const tableData = [];
+
+  // ヘッダー行を作成（氏名・グループ列を追加）
+  const headers = ['氏名', 'グループ'];
+  const headerDates = []; // 日付型データ用
+
   for (let day = 1; day <= daysInMonth; day++) {
     const date = new Date(year, month - 1, day);
-    const dayOfWeek = ['日', '月', '火', '水', '木', '金', '土'][date.getDay()];
-    headers.push(`${month}/${day}(${dayOfWeek})`);
+    headers.push(date);  // 日付型データを追加
+    headerDates.push(date);
   }
-  sheet.appendRow(headers);
+  tableData.push(headers);
 
-  // スタッフ名を追加
+  // スタッフ行を作成
   staff.forEach(person => {
-    const row = [person['氏名']];
+    const row = [person['氏名'], person['グループ']];
     for (let day = 1; day <= daysInMonth; day++) {
-      row.push('');
+      row.push('');  // 空のシフト欄
     }
-    sheet.appendRow(row);
+    tableData.push(row);
   });
 
-  // ヘッダーのスタイル設定
-  sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#4a86e8').setFontColor('#ffffff');
-  sheet.setFrozenRows(1);
-  sheet.setFrozenColumns(1);
+  // 配列一括貼り付け（高速化）
+  const range = sheet.getRange(1, 1, tableData.length, headers.length);
+  range.setValues(tableData);
 
+  // ヘッダーのスタイル設定
+  const headerRange = sheet.getRange(1, 1, 1, headers.length);
+  headerRange
+    .setFontWeight('bold')
+    .setBackground('#4a86e8')
+    .setFontColor('#ffffff');
+
+  // 日付列の表示形式を「M/d(aaa)」に設定
+  const dateHeaderRange = sheet.getRange(1, 3, 1, daysInMonth);
+  dateHeaderRange.setNumberFormat('M/d(aaa)');
+
+  // 固定列を2列（氏名・グループ）に設定
+  sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(2);
+
+  // シフト名のプルダウン（入力規則）を設定
+  const shiftMaster = getAllShiftMaster();
+  const shiftNames = shiftMaster.map(shift => shift['シフト名']);
+
+  if (shiftNames.length > 0 && staff.length > 0) {
+    const rule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(shiftNames, true)  // プルダウン表示
+      .setAllowInvalid(true)  // リスト外の値も許可
+      .build();
+
+    // シフト欄（3列目以降、2行目以降）に入力規則を設定
+    const shiftRange = sheet.getRange(2, 3, staff.length, daysInMonth);
+    shiftRange.setDataValidation(rule);
+  }
+
+  console.log(`作業用シート初期化完了: ${staff.length}名 × ${daysInMonth}日`);
   return sheet;
 }
 
 /**
- * ランダムにシフトを配置（たたき台レベル）
+ * 最適化アルゴリズムでシフトを配置
+ * 制約条件を考慮した貪欲法ベースのシフト生成
  */
-function assignShiftsRandomly(sheet, staff, daysInMonth) {
-  const shiftTypes = ['早出', '日勤', '遅出', '夜勤'];
+function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth) {
+  try {
+    // シフトデータを2次元配列で管理（高速化）
+    const shiftData = [];
+    const staffCount = staff.length;
 
-  for (let day = 1; day <= daysInMonth; day++) {
-    for (let i = 0; i < staff.length; i++) {
-      const currentValue = sheet.getRange(i + 2, day + 1).getValue();
-
-      // 休み希望が既に入っている場合はスキップ
-      if (currentValue === '休み') continue;
-
-      const person = staff[i];
-
-      // 勤務配慮ありの場合は夜勤を除外
-      let availableShifts = [...shiftTypes];
-      if (person['勤務配慮'] === true || person['勤務配慮'] === 'TRUE') {
-        availableShifts = availableShifts.filter(s => s !== '夜勤');
+    // 現在のシート状態を読み込み（休み希望が既に入っている）
+    for (let i = 0; i < staffCount; i++) {
+      shiftData[i] = [];
+      for (let day = 1; day <= daysInMonth; day++) {
+        const currentValue = sheet.getRange(i + 2, day + 2).getValue();
+        shiftData[i][day - 1] = currentValue || '';
       }
+    }
 
-      // ランダムでシフトを割り当て（休みも含む）
-      const random = Math.random();
-      if (random < 0.3) {
-        // 30%の確率で休み
-        sheet.getRange(i + 2, day + 1).setValue('休み');
-      } else {
-        // ランダムでシフト選択
-        const shiftIndex = Math.floor(Math.random() * availableShifts.length);
-        sheet.getRange(i + 2, day + 1).setValue(availableShifts[shiftIndex]);
+    // フェーズ1: 夜勤を割り当て（最も制約が厳しい）
+    assignNightShifts(shiftData, staff, daysInMonth);
+
+    // フェーズ2: 日勤系シフト（早出・日勤・遅出）を割り当て
+    assignDayShifts(shiftData, staff, daysInMonth);
+
+    // フェーズ3: 残りを休みで埋める
+    fillRemainingWithRest(shiftData, staff, daysInMonth);
+
+    // シートに一括書き込み（高速化）
+    const writeData = [];
+    for (let i = 0; i < staffCount; i++) {
+      writeData[i] = shiftData[i];
+    }
+
+    if (writeData.length > 0) {
+      sheet.getRange(2, 3, staffCount, daysInMonth).setValues(writeData);
+    }
+
+    console.log('最適化シフト割り当て完了');
+    return { success: true, message: 'ルールベースでシフト案を作成しました' };
+
+  } catch (e) {
+    console.error('最適化シフト割り当てエラー:', e);
+    return { success: false, message: 'シフト生成エラー: ' + e.message };
+  }
+}
+
+/**
+ * フェーズ1: 夜勤シフトの割り当て
+ */
+function assignNightShifts(shiftData, staff, daysInMonth) {
+  const NIGHT_SHIFTS_PER_DAY = 2;  // 1日あたりの夜勤人数目標
+
+  // 夜勤可能な職員リスト（勤務配慮なし）
+  const nightShiftCapable = staff.filter((p, i) => {
+    return !(p['勤務配慮'] === true || p['勤務配慮'] === 'TRUE');
+  }).map((p, originalIndex) => {
+    return staff.findIndex(s => s['職員ID'] === p['職員ID']);
+  });
+
+  // 資格者リスト
+  const qualifiedStaff = staff.map((p, i) => {
+    return (p['喀痰吸引資格者'] === true || p['喀痰吸引資格者'] === 'TRUE') ? i : -1;
+  }).filter(i => i >= 0);
+
+  for (let day = 0; day < daysInMonth; day++) {
+    let assignedNightShifts = 0;
+    let hasQualifiedStaff = false;
+
+    // まず資格者を1名割り当て
+    for (const staffIndex of qualifiedStaff) {
+      if (!nightShiftCapable.includes(staffIndex)) continue;
+
+      if (canAssignShift(shiftData, staff, staffIndex, day, '夜勤')) {
+        shiftData[staffIndex][day] = '夜勤';
+        assignedNightShifts++;
+        hasQualifiedStaff = true;
+        break;
+      }
+    }
+
+    // 残りの夜勤枠を埋める
+    for (const staffIndex of nightShiftCapable) {
+      if (assignedNightShifts >= NIGHT_SHIFTS_PER_DAY) break;
+
+      if (shiftData[staffIndex][day] === '' && canAssignShift(shiftData, staff, staffIndex, day, '夜勤')) {
+        shiftData[staffIndex][day] = '夜勤';
+        assignedNightShifts++;
       }
     }
   }
+}
+
+/**
+ * フェーズ2: 日勤系シフトの割り当て
+ */
+function assignDayShifts(shiftData, staff, daysInMonth) {
+  const dayShiftTypes = ['早出', '日勤', '遅出'];
+  const TARGET_WORK_DAYS_PER_MONTH = 18;  // 目標勤務日数（月21日以内に収める）
+
+  for (let staffIndex = 0; staffIndex < staff.length; staffIndex++) {
+    let workDays = 0;
+
+    // 既に割り当てられている勤務日数をカウント
+    for (let day = 0; day < daysInMonth; day++) {
+      if (shiftData[staffIndex][day] !== '' && shiftData[staffIndex][day] !== '休み') {
+        workDays++;
+      }
+    }
+
+    // 空いている日にシフトを割り当て
+    for (let day = 0; day < daysInMonth; day++) {
+      if (shiftData[staffIndex][day] !== '') continue;  // 既に割り当て済み
+      if (workDays >= TARGET_WORK_DAYS_PER_MONTH) break;  // 目標勤務日数に達した
+
+      // シフトタイプをローテーション的に選択
+      const shiftType = dayShiftTypes[day % dayShiftTypes.length];
+
+      if (canAssignShift(shiftData, staff, staffIndex, day, shiftType)) {
+        shiftData[staffIndex][day] = shiftType;
+        workDays++;
+      }
+    }
+  }
+}
+
+/**
+ * フェーズ3: 残りのセルを休みで埋める
+ */
+function fillRemainingWithRest(shiftData, staff, daysInMonth) {
+  for (let staffIndex = 0; staffIndex < staff.length; staffIndex++) {
+    for (let day = 0; day < daysInMonth; day++) {
+      if (shiftData[staffIndex][day] === '') {
+        shiftData[staffIndex][day] = '休み';
+      }
+    }
+  }
+}
+
+/**
+ * 制約チェック：指定されたシフトを割り当て可能かチェック
+ */
+function canAssignShift(shiftData, staff, staffIndex, day, shiftType) {
+  // 既に何か入っている場合は不可
+  if (shiftData[staffIndex][day] !== '') return false;
+
+  // 勤務配慮者は夜勤不可
+  const person = staff[staffIndex];
+  if (shiftType === '夜勤' && (person['勤務配慮'] === true || person['勤務配慮'] === 'TRUE')) {
+    return false;
+  }
+
+  // 連勤制限チェック（6連勤以内）
+  if (!checkConsecutiveDaysConstraint(shiftData[staffIndex], day)) {
+    return false;
+  }
+
+  // 月間勤務日数上限チェック（21日以内）
+  if (!checkMonthlyWorkDaysConstraint(shiftData[staffIndex])) {
+    return false;
+  }
+
+  // インターバルルールチェック（遅出→早出禁止）
+  if (!checkIntervalConstraint(shiftData[staffIndex], day, shiftType)) {
+    return false;
+  }
+
+  // 夜勤明けルールチェック（夜勤→休→休）
+  if (!checkNightShiftRestConstraint(shiftData[staffIndex], day, shiftType)) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * 連勤制限チェック（6連勤以内）
+ */
+function checkConsecutiveDaysConstraint(staffShiftData, day) {
+  let consecutiveDays = 0;
+
+  // 指定日から遡って連勤日数をカウント
+  for (let d = day - 1; d >= 0; d--) {
+    if (staffShiftData[d] !== '' && staffShiftData[d] !== '休み') {
+      consecutiveDays++;
+    } else {
+      break;
+    }
+  }
+
+  // 6連勤以上になる場合は不可
+  return consecutiveDays < 6;
+}
+
+/**
+ * 月間勤務日数上限チェック（21日以内）
+ */
+function checkMonthlyWorkDaysConstraint(staffShiftData) {
+  let workDays = 0;
+
+  for (let d = 0; d < staffShiftData.length; d++) {
+    if (staffShiftData[d] !== '' && staffShiftData[d] !== '休み') {
+      workDays++;
+    }
+  }
+
+  // 21日以上勤務している場合は不可
+  return workDays < 21;
+}
+
+/**
+ * インターバルルールチェック（遅出→早出禁止）
+ */
+function checkIntervalConstraint(staffShiftData, day, shiftType) {
+  if (day === 0) return true;  // 初日はチェック不要
+
+  const prevShift = staffShiftData[day - 1];
+
+  // 前日が遅出で、今日が早出の場合は不可
+  if (prevShift === '遅出' && shiftType === '早出') {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * 夜勤明けルールチェック（夜勤→休→休）
+ */
+function checkNightShiftRestConstraint(staffShiftData, day, shiftType) {
+  // 前日が夜勤の場合、今日は休みでなければならない
+  if (day > 0 && staffShiftData[day - 1] === '夜勤' && shiftType !== '休み') {
+    return false;
+  }
+
+  // 前々日が夜勤の場合、今日も休みでなければならない
+  if (day > 1 && staffShiftData[day - 2] === '夜勤' && shiftType !== '休み') {
+    return false;
+  }
+
+  // 今日が夜勤の場合、前日が夜勤ではないことを確認
+  if (shiftType === '夜勤' && day > 0 && staffShiftData[day - 1] === '夜勤') {
+    return false;
+  }
+
+  return true;
 }
 
 // ============================================
@@ -166,6 +414,64 @@ function checkShiftRules(year, month) {
 }
 
 /**
+ * シフトのルールチェックを実行（選択式）
+ * @param {number} year - 対象年
+ * @param {number} month - 対象月
+ * @param {Array} selectedRules - チェックするルール番号の配列 [1,2,3,4,5,6]
+ */
+function checkShiftRulesSelective(year, month, selectedRules) {
+  try {
+    console.log(`ルールチェック開始: ${year}年${month}月 (選択: ${selectedRules.join(',')})`);
+
+    const sheet = getSpreadsheet().getSheetByName(SHEET_NAMES.WORK_SHEET);
+    if (!sheet) {
+      return { success: false, message: '作業用シートが見つかりません' };
+    }
+
+    const staff = getActiveStaff();
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const data = sheet.getDataRange().getValues();
+
+    const violations = [];
+
+    // 選択されたルールのみチェック
+    if (selectedRules.includes(1)) {
+      violations.push(...checkMinimumStaffRule(data, staff, daysInMonth));
+    }
+    if (selectedRules.includes(2)) {
+      violations.push(...checkConsecutiveWorkDaysRule(data, staff, daysInMonth));
+    }
+    if (selectedRules.includes(3)) {
+      violations.push(...checkIntervalRule(data, staff, daysInMonth));
+    }
+    if (selectedRules.includes(4)) {
+      violations.push(...checkMaxWorkDaysRule(data, staff, daysInMonth));
+    }
+    if (selectedRules.includes(5)) {
+      violations.push(...checkNightShiftRestRule(data, staff, daysInMonth));
+    }
+    if (selectedRules.includes(6)) {
+      violations.push(...checkQualifiedStaffRule(data, staff, daysInMonth));
+    }
+
+    // 違反箇所にコメントを追加（背景色ではなく）
+    addViolationComments(sheet, violations);
+
+    console.log(`ルールチェック完了: ${violations.length}件の違反`);
+
+    return {
+      success: true,
+      violations: violations,
+      message: `チェック完了: ${violations.length}件の違反が見つかりました`
+    };
+
+  } catch (e) {
+    console.error('ルールチェックエラー:', e);
+    return { success: false, message: 'エラーが発生しました: ' + e.message };
+  }
+}
+
+/**
  * ルール1-4: 最低人数チェック（グループ別）
  */
 function checkMinimumStaffRule(data, staff, daysInMonth) {
@@ -185,7 +491,7 @@ function checkMinimumStaffRule(data, staff, daysInMonth) {
       const shiftCounts = { '早出': 0, '日勤': 0, '遅出': 0, '夜勤': 0 };
 
       groupIndices.forEach(rowIndex => {
-        const shiftName = data[rowIndex][day];
+        const shiftName = data[rowIndex][day + 1];  // グループ列追加により+1に変更
         if (shiftCounts.hasOwnProperty(shiftName)) {
           shiftCounts[shiftName]++;
         }
@@ -203,9 +509,9 @@ function checkMinimumStaffRule(data, staff, daysInMonth) {
       }
 
       // 日曜日以外は日勤1名以上
-      // ヘッダーから日付を取得（例: "1/1(日)" から曜日を判定）
-      const headerText = String(data[0][day]);
-      const isSunday = headerText.includes('(日)');
+      // ヘッダーから日付を取得して曜日を判定
+      const headerDate = data[0][day + 1];  // グループ列追加により+1に変更
+      const isSunday = (headerDate instanceof Date) && headerDate.getDay() === 0;
       if (!isSunday && shiftCounts['日勤'] < 1) {
         violations.push({
           type: '最低人数不足',
@@ -253,7 +559,7 @@ function checkConsecutiveWorkDaysRule(data, staff, daysInMonth) {
     let startDay = 0;
 
     for (let day = 1; day <= daysInMonth; day++) {
-      const shiftName = data[i][day];
+      const shiftName = data[i][day + 1];  // グループ列追加により+1に変更
 
       if (shiftName !== '休み' && shiftName !== '') {
         if (consecutiveDays === 0) {
@@ -290,8 +596,8 @@ function checkIntervalRule(data, staff, daysInMonth) {
     const name = data[i][0];
 
     for (let day = 1; day < daysInMonth; day++) {
-      const todayShift = data[i][day];
-      const tomorrowShift = data[i][day + 1];
+      const todayShift = data[i][day + 1];  // グループ列追加により+1に変更
+      const tomorrowShift = data[i][day + 2];  // グループ列追加により+2に変更
 
       if (todayShift === '遅出' && tomorrowShift === '早出') {
         violations.push({
@@ -319,7 +625,7 @@ function checkMaxWorkDaysRule(data, staff, daysInMonth) {
     let workDays = 0;
 
     for (let day = 1; day <= daysInMonth; day++) {
-      const shiftName = data[i][day];
+      const shiftName = data[i][day + 1];  // グループ列追加により+1に変更
 
       if (shiftName === '夜勤') {
         workDays += 2; // 夜勤は2日分
@@ -351,9 +657,9 @@ function checkNightShiftRestRule(data, staff, daysInMonth) {
     const name = data[i][0];
 
     for (let day = 1; day <= daysInMonth - 2; day++) {
-      const shift1 = data[i][day];
-      const shift2 = data[i][day + 1];
-      const shift3 = data[i][day + 2];
+      const shift1 = data[i][day + 1];  // グループ列追加により+1に変更
+      const shift2 = data[i][day + 2];  // グループ列追加により+2に変更
+      const shift3 = data[i][day + 3];  // グループ列追加により+3に変更
 
       if (shift1 === '夜勤') {
         if (shift2 !== '休み') {
@@ -392,7 +698,7 @@ function checkQualifiedStaffRule(data, staff, daysInMonth) {
 
     for (let i = 1; i < data.length; i++) {
       const name = data[i][0];
-      const shiftName = data[i][day];
+      const shiftName = data[i][day + 1];  // グループ列追加により+1に変更
 
       if (shiftName === '夜勤') {
         const person = staff.find(s => s['氏名'] === name);
@@ -416,18 +722,71 @@ function checkQualifiedStaffRule(data, staff, daysInMonth) {
 }
 
 /**
- * 違反箇所をハイライト表示
+ * 違反箇所をハイライト表示（旧方式 - 背景色）
  */
 function highlightViolations(sheet, violations) {
   // まず全セルの背景色をクリア
   const maxRow = sheet.getLastRow();
   const maxCol = sheet.getLastColumn();
-  sheet.getRange(2, 2, maxRow - 1, maxCol - 1).setBackground(null);
+  sheet.getRange(2, 3, maxRow - 1, maxCol - 2).setBackground(null);  // グループ列対応
 
   // 違反箇所を赤くハイライト
   violations.forEach(v => {
     if (v.row && v.day) {
-      sheet.getRange(v.row + 1, v.day + 1).setBackground('#ff0000').setFontColor('#ffffff');
+      sheet.getRange(v.row + 1, v.day + 2).setBackground('#ff0000').setFontColor('#ffffff');  // グループ列対応
     }
   });
+}
+
+/**
+ * 違反箇所にコメントを追加（新方式）
+ */
+function addViolationComments(sheet, violations) {
+  try {
+    // まず全セルのコメントをクリア（シフト欄のみ）
+    const maxRow = sheet.getLastRow();
+    const maxCol = sheet.getLastColumn();
+    if (maxRow > 1 && maxCol > 2) {
+      const shiftRange = sheet.getRange(2, 3, maxRow - 1, maxCol - 2);
+      shiftRange.clearNote();
+    }
+
+    // 違反箇所ごとにコメントを集約（同じセルに複数の違反がある場合を考慮）
+    const commentMap = {};  // key: "row,col", value: [messages]
+
+    violations.forEach(v => {
+      if (v.row && v.day) {
+        const row = v.row + 1;
+        const col = v.day + 2;  // グループ列追加により+2
+        const key = `${row},${col}`;
+
+        if (!commentMap[key]) {
+          commentMap[key] = [];
+        }
+
+        // コメント内容を作成
+        const commentText = `【${v.type}】\n${v.message}`;
+        commentMap[key].push(commentText);
+      }
+    });
+
+    // コメントを追加
+    Object.keys(commentMap).forEach(key => {
+      const [row, col] = key.split(',').map(Number);
+      const messages = commentMap[key];
+      const fullComment = messages.join('\n\n');
+
+      const cell = sheet.getRange(row, col);
+      cell.setNote(fullComment);
+
+      // 視認性向上のため、コメントがあるセルに薄い黄色背景を設定（オプション）
+      cell.setBackground('#fff3cd');
+    });
+
+    console.log(`コメント追加完了: ${Object.keys(commentMap).length}セルに追加`);
+
+  } catch (e) {
+    console.error('コメント追加エラー:', e);
+    throw e;
+  }
 }
