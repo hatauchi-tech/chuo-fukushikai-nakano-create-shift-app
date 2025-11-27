@@ -193,54 +193,45 @@ function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth, mo
  * STEP1: 月間公休日数を割り当て（優先順位調整付き）
  */
 function assignHolidaysWithPriority(shiftData, staff, year, month, daysInMonth, monthlyHolidays) {
-  // 各スタッフの休み希望を収集
-  const holidayRequests = [];
+  // 各スタッフの割り当て済み休み数をカウント
+  const assignedHolidays = new Array(staff.length).fill(0);
 
+  // スタッフごとに休み希望を収集して割り当て
   for (let i = 0; i < staff.length; i++) {
     const person = staff[i];
     const requests = getHolidayRequestByNameAndMonth(person['氏名'], year, month);
 
-    requests.forEach(req => {
-      const day = new Date(req['日付']).getDate() - 1;  // 0-indexed
-      const priority = req['優先順位'] || 99;  // 休み希望データの優先順位（数値が小さいほど優先度が高い）
-
-      holidayRequests.push({
-        staffIndex: i,
-        staffName: person['氏名'],
-        day: day,
-        priority: priority
-      });
-    });
-  }
-
-  // 日付ごとにグループ化して優先順位でソート
-  const requestsByDay = {};
-  for (let day = 0; day < daysInMonth; day++) {
-    requestsByDay[day] = [];
-  }
-
-  holidayRequests.forEach(req => {
-    requestsByDay[req.day].push(req);
-  });
-
-  // 各日の重複をチェックして優先順位で調整
-  let totalAssigned = 0;
-  for (let day = 0; day < daysInMonth; day++) {
-    const requests = requestsByDay[day];
-
     // 優先順位でソート（数値が小さいほど優先度が高い）
-    requests.sort((a, b) => a.priority - b.priority);
+    requests.sort((a, b) => (a['優先順位'] || 99) - (b['優先順位'] || 99));
 
-    // 優先順位が高い人から割り当て
-    requests.forEach(req => {
-      if (shiftData[req.staffIndex][req.day] === '') {
-        shiftData[req.staffIndex][req.day] = '休み';
-        totalAssigned++;
+    // 優先順位が高い順に割り当て
+    for (const req of requests) {
+      // 月間公休日数に達したらスキップ
+      if (assignedHolidays[i] >= monthlyHolidays) {
+        console.log(`${person['氏名']}: 月間公休日数上限(${monthlyHolidays}日)に達しました`);
+        break;
       }
-    });
+
+      const day = new Date(req['日付']).getDate() - 1;  // 0-indexed
+
+      // 既に割り当て済みならスキップ
+      if (shiftData[i][day] !== '') {
+        continue;
+      }
+
+      // 割り当て
+      shiftData[i][day] = '休み';
+      assignedHolidays[i]++;
+    }
   }
 
+  const totalAssigned = assignedHolidays.reduce((sum, count) => sum + count, 0);
   console.log(`休み希望を${totalAssigned}件割り当てました`);
+
+  // 各スタッフの割り当て状況をログ出力
+  for (let i = 0; i < staff.length; i++) {
+    console.log(`${staff[i]['氏名']}: ${assignedHolidays[i]}/${monthlyHolidays}日`);
+  }
 }
 
 // ============================================

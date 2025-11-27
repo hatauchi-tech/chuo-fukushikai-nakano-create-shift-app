@@ -69,14 +69,14 @@ function openWebApp() {
 }
 
 /**
- * シフト案作成ダイアログ（2段階入力）
+ * シフト案作成ダイアログ（1段階入力）
  */
 function showCreateShiftDialog() {
   const ui = SpreadsheetApp.getUi();
 
-  // ステップ1: 年月入力
+  // 年月入力
   const monthResponse = ui.prompt(
-    'シフト案作成 - ステップ1/2',
+    'シフト案作成',
     '対象年月を入力してください (例: 2025/01)',
     ui.ButtonSet.OK_CANCEL
   );
@@ -91,26 +91,12 @@ function showCreateShiftDialog() {
     return;
   }
 
-  // ステップ2: 月間公休数入力
-  const holidaysResponse = ui.prompt(
-    'シフト案作成 - ステップ2/2',
-    '月間公休日数を入力してください (例: 9)\n' +
-    '\n' +
-    '💡 計算式: 月間出勤日数上限 = 暦日数 - 公休日数\n' +
-    `   ${new Date(year, month, 0).getDate()}日（${year}年${month}月の暦日数） - [公休日数] = 目標勤務日数\n` +
-    '\n' +
-    'デフォルト: 9日',
-    ui.ButtonSet.OK_CANCEL
-  );
+  // M_設定シートから月間公休日数を取得
+  const configKey = `MONTHLY_HOLIDAYS_${year}${String(month).padStart(2, '0')}`;
+  const configResult = getConfig(configKey);
+  let monthlyHolidays = configResult.value ? parseFloat(configResult.value) : 9;  // デフォルト9日
 
-  if (holidaysResponse.getSelectedButton() !== ui.Button.OK) return;
-
-  let monthlyHolidays = parseFloat(holidaysResponse.getResponseText().trim());
-
-  // デフォルト値の設定
-  if (!monthlyHolidays || monthlyHolidays <= 0) {
-    monthlyHolidays = 9;
-  }
+  console.log(`${year}年${month}月の月間公休日数: ${monthlyHolidays}日 (設定キー: ${configKey})`);
 
   // シフト案作成実行
   const result = createShiftDraft(year, month, monthlyHolidays);
