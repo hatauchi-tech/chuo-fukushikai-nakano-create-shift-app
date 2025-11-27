@@ -120,7 +120,7 @@ function initializeWorkSheet(year, month, staff, daysInMonth) {
 
 /**
  * 最適化アルゴリズムでシフトを配置
- * 制約条件を考慮した貪欲法ベースのシフト生成
+ * 制約条件を考慮した貪欲法ベースのシフト生成（グループ単位の最低人数を考慮）
  */
 function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth) {
   try {
@@ -137,11 +137,56 @@ function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth) {
       }
     }
 
-    // フェーズ1: 夜勤を割り当て（最も制約が厳しい）
-    assignNightShifts(shiftData, staff, daysInMonth);
+    // グループごとにスタッフをグループ化
+    const staffByGroup = {};
+    for (let i = 0; i < staff.length; i++) {
+      const group = staff[i]['グループ'];
+      if (!staffByGroup[group]) {
+        staffByGroup[group] = [];
+      }
+      staffByGroup[group].push({ index: i, data: staff[i] });
+    }
 
-    // フェーズ2: 日勤系シフト（早出・日勤・遅出）を割り当て
-    assignDayShifts(shiftData, staff, daysInMonth);
+    // 日ごとに処理
+    for (let day = 0; day < daysInMonth; day++) {
+      const date = new Date(year, month - 1, day + 1);
+      const isSunday = date.getDay() === 0;
+
+      // 全グループで資格者の夜勤を最低1名確保（グループ横断ルール）
+      let hasQualifiedNightShift = false;
+
+      // 各グループごとに最低人数を確保
+      for (let group = 1; group <= 6; group++) {
+        const groupStaff = staffByGroup[group] || [];
+
+        // 夜勤: 1名以上（資格者優先）
+        assignShiftToGroup(shiftData, staff, groupStaff, day, '夜勤', 1, true);
+
+        // 資格者の夜勤がいるかチェック
+        for (const s of groupStaff) {
+          if (shiftData[s.index][day] === '夜勤' &&
+              (s.data['喀痰吸引資格者'] === true || s.data['喀痰吸引資格者'] === 'TRUE')) {
+            hasQualifiedNightShift = true;
+          }
+        }
+
+        // 早出: 2名以上
+        assignShiftToGroup(shiftData, staff, groupStaff, day, '早出', 2, false);
+
+        // 日勤: 1名以上（日曜は0名OK）
+        if (!isSunday) {
+          assignShiftToGroup(shiftData, staff, groupStaff, day, '日勤', 1, false);
+        }
+
+        // 遅出: 1名以上
+        assignShiftToGroup(shiftData, staff, groupStaff, day, '遅出', 1, false);
+      }
+
+      // 全グループ横断で資格者の夜勤が1名もいない場合、追加で割り当て
+      if (!hasQualifiedNightShift) {
+        assignQualifiedNightShift(shiftData, staff, day);
+      }
+    }
 
     // フェーズ3: 残りを休みで埋める
     fillRemainingWithRest(shiftData, staff, daysInMonth);
@@ -157,7 +202,7 @@ function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth) {
     }
 
     console.log('最適化シフト割り当て完了');
-    return { success: true, message: 'ルールベースでシフト案を作成しました' };
+    return { success: true, message: 'グループ別最低人数を考慮したシフト案を作成しました' };
 
   } catch (e) {
     console.error('最適化シフト割り当てエラー:', e);
@@ -166,86 +211,52 @@ function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth) {
 }
 
 /**
- * フェーズ1: 夜勤シフトの割り当て
+ * グループ内で指定シフトを必要人数分割り当て
  */
-function assignNightShifts(shiftData, staff, daysInMonth) {
-  const NIGHT_SHIFTS_PER_DAY = 2;  // 1日あたりの夜勤人数目標
+function assignShiftToGroup(shiftData, staff, groupStaff, day, shiftType, requiredCount, qualifiedFirst) {
+  let assignedCount = 0;
 
-  // 夜勤可能な職員リスト（勤務配慮なし）
-  const nightShiftCapable = staff.filter((p, i) => {
-    return !(p['勤務配慮'] === true || p['勤務配慮'] === 'TRUE');
-  }).map((p, originalIndex) => {
-    return staff.findIndex(s => s['職員ID'] === p['職員ID']);
-  });
+  // 資格者優先の場合、まず資格者を割り当て
+  if (qualifiedFirst) {
+    for (const s of groupStaff) {
+      if (assignedCount >= requiredCount) break;
 
-  // 資格者リスト
-  const qualifiedStaff = staff.map((p, i) => {
-    return (p['喀痰吸引資格者'] === true || p['喀痰吸引資格者'] === 'TRUE') ? i : -1;
-  }).filter(i => i >= 0);
-
-  for (let day = 0; day < daysInMonth; day++) {
-    let assignedNightShifts = 0;
-    let hasQualifiedStaff = false;
-
-    // まず資格者を1名割り当て
-    for (const staffIndex of qualifiedStaff) {
-      if (!nightShiftCapable.includes(staffIndex)) continue;
-
-      if (canAssignShift(shiftData, staff, staffIndex, day, '夜勤')) {
-        shiftData[staffIndex][day] = '夜勤';
-        assignedNightShifts++;
-        hasQualifiedStaff = true;
-        break;
+      const isQualified = (s.data['喀痰吸引資格者'] === true || s.data['喀痰吸引資格者'] === 'TRUE');
+      if (isQualified && shiftData[s.index][day] === '' && canAssignShift(shiftData, staff, s.index, day, shiftType)) {
+        shiftData[s.index][day] = shiftType;
+        assignedCount++;
       }
     }
+  }
 
-    // 残りの夜勤枠を埋める
-    for (const staffIndex of nightShiftCapable) {
-      if (assignedNightShifts >= NIGHT_SHIFTS_PER_DAY) break;
+  // 残りを通常のスタッフで埋める
+  for (const s of groupStaff) {
+    if (assignedCount >= requiredCount) break;
 
-      if (shiftData[staffIndex][day] === '' && canAssignShift(shiftData, staff, staffIndex, day, '夜勤')) {
-        shiftData[staffIndex][day] = '夜勤';
-        assignedNightShifts++;
-      }
+    if (shiftData[s.index][day] === '' && canAssignShift(shiftData, staff, s.index, day, shiftType)) {
+      shiftData[s.index][day] = shiftType;
+      assignedCount++;
     }
   }
 }
 
 /**
- * フェーズ2: 日勤系シフトの割り当て
+ * 全グループ横断で資格者の夜勤を1名確保
  */
-function assignDayShifts(shiftData, staff, daysInMonth) {
-  const dayShiftTypes = ['早出', '日勤', '遅出'];
-  const TARGET_WORK_DAYS_PER_MONTH = 18;  // 目標勤務日数（月21日以内に収める）
+function assignQualifiedNightShift(shiftData, staff, day) {
+  for (let i = 0; i < staff.length; i++) {
+    const isQualified = (staff[i]['喀痰吸引資格者'] === true || staff[i]['喀痰吸引資格者'] === 'TRUE');
 
-  for (let staffIndex = 0; staffIndex < staff.length; staffIndex++) {
-    let workDays = 0;
-
-    // 既に割り当てられている勤務日数をカウント
-    for (let day = 0; day < daysInMonth; day++) {
-      if (shiftData[staffIndex][day] !== '' && shiftData[staffIndex][day] !== '休み') {
-        workDays++;
-      }
-    }
-
-    // 空いている日にシフトを割り当て
-    for (let day = 0; day < daysInMonth; day++) {
-      if (shiftData[staffIndex][day] !== '') continue;  // 既に割り当て済み
-      if (workDays >= TARGET_WORK_DAYS_PER_MONTH) break;  // 目標勤務日数に達した
-
-      // シフトタイプをローテーション的に選択
-      const shiftType = dayShiftTypes[day % dayShiftTypes.length];
-
-      if (canAssignShift(shiftData, staff, staffIndex, day, shiftType)) {
-        shiftData[staffIndex][day] = shiftType;
-        workDays++;
-      }
+    if (isQualified && shiftData[i][day] === '' && canAssignShift(shiftData, staff, i, day, '夜勤')) {
+      shiftData[i][day] = '夜勤';
+      console.log(`資格者の夜勤を追加割り当て: ${staff[i]['氏名']} (day ${day + 1})`);
+      break;
     }
   }
 }
 
 /**
- * フェーズ3: 残りのセルを休みで埋める
+ * 残りのセルを休みで埋める
  */
 function fillRemainingWithRest(shiftData, staff, daysInMonth) {
   for (let staffIndex = 0; staffIndex < staff.length; staffIndex++) {
@@ -270,13 +281,13 @@ function canAssignShift(shiftData, staff, staffIndex, day, shiftType) {
     return false;
   }
 
-  // 連勤制限チェック（6連勤以内）
+  // 連勤制限チェック（5連勤以内）
   if (!checkConsecutiveDaysConstraint(shiftData[staffIndex], day)) {
     return false;
   }
 
-  // 月間勤務日数上限チェック（21日以内）
-  if (!checkMonthlyWorkDaysConstraint(shiftData[staffIndex])) {
+  // 月間勤務日数上限チェック（21日以内、夜勤は2日分換算）
+  if (!checkMonthlyWorkDaysConstraint(shiftData[staffIndex], shiftType)) {
     return false;
   }
 
@@ -294,7 +305,7 @@ function canAssignShift(shiftData, staff, staffIndex, day, shiftType) {
 }
 
 /**
- * 連勤制限チェック（6連勤以内）
+ * 連勤制限チェック（5連勤以内）
  */
 function checkConsecutiveDaysConstraint(staffShiftData, day) {
   let consecutiveDays = 0;
@@ -308,24 +319,33 @@ function checkConsecutiveDaysConstraint(staffShiftData, day) {
     }
   }
 
-  // 6連勤以上になる場合は不可
-  return consecutiveDays < 6;
+  // 5連勤まで許可（現在4連勤以下なら、今日割り当てて5連勤まで）
+  return consecutiveDays < 5;
 }
 
 /**
- * 月間勤務日数上限チェック（21日以内）
+ * 月間勤務日数上限チェック（21日以内、夜勤は2日分換算）
  */
-function checkMonthlyWorkDaysConstraint(staffShiftData) {
+function checkMonthlyWorkDaysConstraint(staffShiftData, shiftType) {
   let workDays = 0;
 
   for (let d = 0; d < staffShiftData.length; d++) {
-    if (staffShiftData[d] !== '' && staffShiftData[d] !== '休み') {
-      workDays++;
+    if (staffShiftData[d] === '夜勤') {
+      workDays += 2; // 夜勤は2日分
+    } else if (staffShiftData[d] !== '' && staffShiftData[d] !== '休み') {
+      workDays += 1;
     }
   }
 
-  // 21日以上勤務している場合は不可
-  return workDays < 21;
+  // 今日割り当てるシフトを加算
+  if (shiftType === '夜勤') {
+    workDays += 2;
+  } else if (shiftType !== '休み' && shiftType !== '') {
+    workDays += 1;
+  }
+
+  // 21日以内
+  return workDays <= 21;
 }
 
 /**
