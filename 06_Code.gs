@@ -385,10 +385,13 @@ function apiDeleteShiftMaster(shiftId) {
 
 /**
  * 休み希望保存
+ * @param {string} name - 氏名
+ * @param {Array} requestList - [{date: ISO文字列, priority: 数値}] の配列
+ * @param {string} notes - 特記事項
  */
-function apiSaveHolidayRequest(name, dateList, notes) {
+function apiSaveHolidayRequest(name, requestList, notes) {
   try {
-    saveHolidayRequest(name, dateList, notes);
+    saveHolidayRequest(name, requestList, notes);
     return { success: true, message: '休み希望を保存しました' };
   } catch (e) {
     console.error('休み希望保存エラー:', e);

@@ -199,10 +199,11 @@ function assignHolidaysWithPriority(shiftData, staff, year, month, daysInMonth, 
   for (let i = 0; i < staff.length; i++) {
     const person = staff[i];
     const requests = getHolidayRequestByNameAndMonth(person['氏名'], year, month);
-    const priority = person['優先順位'] || 99;  // 優先順位がない場合は最低優先度
 
     requests.forEach(req => {
       const day = new Date(req['日付']).getDate() - 1;  // 0-indexed
+      const priority = req['優先順位'] || 99;  // 休み希望データの優先順位（数値が小さいほど優先度が高い）
+
       holidayRequests.push({
         staffIndex: i,
         staffName: person['氏名'],
