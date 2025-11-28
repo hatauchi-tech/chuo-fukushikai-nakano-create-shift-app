@@ -164,7 +164,7 @@ function assignShiftsWithOptimization(sheet, staff, year, month, daysInMonth, mo
 
     // ━━━ STEP3: 残りのシフトを割り当て ━━━
     console.log('\n【STEP3】残りシフトの割り当て開始...');
-    assignRemainingShifts(shiftData, staff, year, month, daysInMonth);
+    assignRemainingShifts(shiftData, staff, year, month, daysInMonth, monthlyHolidays);
 
     // シートに一括書き込み
     const writeData = [];
@@ -281,7 +281,7 @@ function assignQualifiedNightShiftsFirst(shiftData, staff, daysInMonth) {
 /**
  * STEP3: 残りのシフトを最低人数・連勤制限・インターバル制限を考慮して割り当て
  */
-function assignRemainingShifts(shiftData, staff, year, month, daysInMonth) {
+function assignRemainingShifts(shiftData, staff, year, month, daysInMonth, monthlyHolidays) {
   // グループごとにスタッフをグループ化
   const staffByGroup = {};
   for (let i = 0; i < staff.length; i++) {
@@ -322,8 +322,8 @@ function assignRemainingShifts(shiftData, staff, year, month, daysInMonth) {
     }
   }
 
-  // 残りを休みで埋める
-  fillRemainingWithRest(shiftData, staff, daysInMonth);
+  // 残りを休みまたはデフォルトシフトで埋める
+  fillRemainingWithRest(shiftData, staff, daysInMonth, monthlyHolidays);
 
   console.log(`残りシフトを${assignedCount}件割り当てました`);
 }
@@ -360,14 +360,38 @@ function assignShiftToGroupSimple(shiftData, staff, groupStaff, day, shiftType, 
 }
 
 /**
- * 残りのセルを休みで埋める
+ * 残りのセルを休みまたはデフォルトシフトで埋める
+ * - 公休数に達していない場合: 空白セルを「休み」で埋める
+ * - 公休数に達している場合: 空白セルを「日勤」で埋める（ルール違反の可能性あり）
  */
-function fillRemainingWithRest(shiftData, staff, daysInMonth) {
+function fillRemainingWithRest(shiftData, staff, daysInMonth, monthlyHolidays) {
   for (let staffIndex = 0; staffIndex < staff.length; staffIndex++) {
+    // 現在の休み数をカウント
+    let currentHolidayCount = 0;
+    for (let day = 0; day < daysInMonth; day++) {
+      if (shiftData[staffIndex][day] === '休み') {
+        currentHolidayCount++;
+      }
+    }
+
+    // 空白セルを埋める
     for (let day = 0; day < daysInMonth; day++) {
       if (shiftData[staffIndex][day] === '') {
-        shiftData[staffIndex][day] = '休み';
+        if (currentHolidayCount < monthlyHolidays) {
+          // 公休数に達していない場合は「休み」を割り当て
+          shiftData[staffIndex][day] = '休み';
+          currentHolidayCount++;
+        } else {
+          // 公休数に達している場合は「日勤」を割り当て（デフォルト）
+          shiftData[staffIndex][day] = '日勤';
+        }
       }
+    }
+
+    // ログ出力
+    const finalHolidayCount = shiftData[staffIndex].filter(s => s === '休み').length;
+    if (finalHolidayCount !== monthlyHolidays) {
+      console.log(`⚠️ ${staff[staffIndex]['氏名']}: 最終的な休み日数 ${finalHolidayCount}日 (設定: ${monthlyHolidays}日)`);
     }
   }
 }
