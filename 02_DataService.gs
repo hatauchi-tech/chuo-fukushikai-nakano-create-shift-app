@@ -254,35 +254,43 @@ function initializeHolidayRequestSheet() {
   const sheet = getOrCreateSheet(SHEET_NAMES.HOLIDAY_REQUEST);
 
   if (sheet.getLastRow() === 0) {
-    const headers = ['シフト休み希望ID', '氏名', '提出日時', '日付', '特記事項'];
+    const headers = ['シフト休み希望ID', '氏名', '提出日時', '日付', '優先順位', '特記事項'];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#d9ead3');
-    console.log('T_シフト休み希望シート初期化完了');
+    console.log('T_シフト休み希望シート初期化完了（優先順位列を追加）');
   }
 
   return sheet;
 }
 
 // 休み希望を保存
-function saveHolidayRequest(name, dateList, notes = '') {
+// @param {string} name - 氏名
+// @param {Array} requestList - [{date: ISO文字列, priority: 数値}] の配列
+// @param {string} notes - 特記事項
+function saveHolidayRequest(name, requestList, notes = '') {
   try {
     const sheet = initializeHolidayRequestSheet();
     const timestamp = new Date();
 
-    // ISO文字列をDateオブジェクトに変換
-    const dates = dateList.map(d => new Date(d));
+    // requestListが空の場合はエラー
+    if (!requestList || requestList.length === 0) {
+      throw new Error('休み希望データが空です');
+    }
 
     // 既存の該当月データを削除（上書き保存）
-    const yearMonth = Utilities.formatDate(dates[0], Session.getScriptTimeZone(), 'yyyyMM');
+    const firstDate = new Date(requestList[0].date);
+    const yearMonth = Utilities.formatDate(firstDate, Session.getScriptTimeZone(), 'yyyyMM');
     deleteHolidayRequestByNameAndMonth(name, yearMonth);
 
-    // 新規保存
-    dates.forEach(date => {
+    // 新規保存（日付と優先順位のペア）
+    requestList.forEach(req => {
+      const date = new Date(req.date);
+      const priority = req.priority || 1;  // デフォルト第1希望
       const requestId = `REQ_${name}_${Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyyMMdd')}_${timestamp.getTime()}`;
-      sheet.appendRow([requestId, name, timestamp, date, notes]);
+      sheet.appendRow([requestId, name, timestamp, date, priority, notes]);
     });
 
-    console.log(`休み希望保存: ${name} (${dates.length}件)`);
+    console.log(`休み希望保存: ${name} (${requestList.length}件)`);
     return true;
   } catch (e) {
     console.error('休み希望保存エラー:', e);
@@ -334,13 +342,15 @@ function getHolidayRequestByNameAndMonth(name, year, month) {
     for (let i = 1; i < data.length; i++) {
       const rowName = data[i][1];
       const rowDate = data[i][3];
+      const rowPriority = data[i][4];  // 優先順位列を追加
 
       if (rowName === name && rowDate) {
         const date = new Date(rowDate);
         if (date.getFullYear() == year && date.getMonth() + 1 == month) {
           requests.push({
             '日付': date.toISOString(),  // ISO文字列に変換
-            '特記事項': data[i][4] || ''
+            '優先順位': rowPriority || 1,  // 優先順位（デフォルト1）
+            '特記事項': data[i][5] || ''  // インデックスを5に変更
           });
         }
       }

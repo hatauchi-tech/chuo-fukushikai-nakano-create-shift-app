@@ -69,27 +69,38 @@ function openWebApp() {
 }
 
 /**
- * シフト案作成ダイアログ
+ * シフト案作成ダイアログ（1段階入力）
  */
 function showCreateShiftDialog() {
   const ui = SpreadsheetApp.getUi();
-  const response = ui.prompt(
+
+  // 年月入力
+  const monthResponse = ui.prompt(
     'シフト案作成',
     '対象年月を入力してください (例: 2025/01)',
     ui.ButtonSet.OK_CANCEL
   );
 
-  if (response.getSelectedButton() === ui.Button.OK) {
-    const input = response.getResponseText();
-    const [year, month] = input.split('/').map(s => parseInt(s.trim()));
+  if (monthResponse.getSelectedButton() !== ui.Button.OK) return;
 
-    if (year && month) {
-      const result = createShiftDraft(year, month);
-      ui.alert(result.message);
-    } else {
-      ui.alert('入力形式が正しくありません');
-    }
+  const input = monthResponse.getResponseText();
+  const [year, month] = input.split('/').map(s => parseInt(s.trim()));
+
+  if (!year || !month) {
+    ui.alert('入力形式が正しくありません');
+    return;
   }
+
+  // M_設定シートから月間公休日数を取得
+  const configKey = `MONTHLY_HOLIDAYS_${year}${String(month).padStart(2, '0')}`;
+  const configResult = getConfig(configKey);
+  let monthlyHolidays = configResult.value ? parseFloat(configResult.value) : 9;  // デフォルト9日
+
+  console.log(`${year}年${month}月の月間公休日数: ${monthlyHolidays}日 (設定キー: ${configKey})`);
+
+  // シフト案作成実行
+  const result = createShiftDraft(year, month, monthlyHolidays);
+  ui.alert(result.message);
 }
 
 /**
@@ -360,10 +371,13 @@ function apiDeleteShiftMaster(shiftId) {
 
 /**
  * 休み希望保存
+ * @param {string} name - 氏名
+ * @param {Array} requestList - [{date: ISO文字列, priority: 数値}] の配列
+ * @param {string} notes - 特記事項
  */
-function apiSaveHolidayRequest(name, dateList, notes) {
+function apiSaveHolidayRequest(name, requestList, notes) {
   try {
-    saveHolidayRequest(name, dateList, notes);
+    saveHolidayRequest(name, requestList, notes);
     return { success: true, message: '休み希望を保存しました' };
   } catch (e) {
     console.error('休み希望保存エラー:', e);

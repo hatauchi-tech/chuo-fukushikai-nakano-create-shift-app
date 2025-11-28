@@ -123,6 +123,24 @@
 
           <div id="calendar" class="mb-6"></div>
 
+          <!-- 選択された日付と優先順位の一覧 -->
+          <div id="selectedDatesContainer" class="mb-6 hidden">
+            <h3 class="text-lg font-semibold text-gray-800 mb-3">選択された休み希望</h3>
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+              <table class="w-full">
+                <thead>
+                  <tr class="border-b">
+                    <th class="text-left py-2 px-2 text-sm font-medium text-gray-700">日付</th>
+                    <th class="text-left py-2 px-2 text-sm font-medium text-gray-700">優先順位</th>
+                    <th class="text-center py-2 px-2 text-sm font-medium text-gray-700">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="selectedDatesList">
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div class="mb-6">
             <label class="block text-sm font-medium text-gray-700 mb-2">特記事項</label>
             <textarea id="requestNotes" rows="3"
@@ -326,7 +344,8 @@
   <script>
     // グローバル変数
     let currentSession = null;
-    let selectedDates = [];
+    // 選択された休み希望: [{day: 数値, priority: 数値}]
+    let selectedRequests = [];
 
     // ページ読み込み時の初期化
     window.onload = function() {
@@ -463,6 +482,40 @@
 
       // ロック状態をチェック
       checkSubmissionLock(year, month);
+
+      // 公休上限を表示
+      displayHolidayLimit(year, month);
+    }
+
+    // 公休上限を表示
+    function displayHolidayLimit(year, month) {
+      const configKey = `MONTHLY_HOLIDAYS_${year}${String(month).padStart(2, '0')}`;
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          const maxHolidays = result.value ? parseFloat(result.value) : 9;
+          const daysInMonth = new Date(year, month, 0).getDate();
+
+          // カレンダーの上に情報を表示
+          const calendar = document.getElementById('calendar');
+          const infoDiv = document.createElement('div');
+          infoDiv.className = 'mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm';
+          infoDiv.innerHTML = `
+            <p class="font-semibold text-blue-800">📅 ${year}年${month}月の情報</p>
+            <p class="text-blue-700">• 暦日数: ${daysInMonth}日</p>
+            <p class="text-blue-700">• 月間公休上限: <span class="font-bold text-lg">${maxHolidays}日</span></p>
+            <p class="text-blue-700">• 現在選択中: <span id="selectedCount" class="font-bold text-lg">${selectedDates.length}日</span></p>
+          `;
+
+          // 既存の情報表示があれば削除
+          const existingInfo = calendar.previousElementSibling;
+          if (existingInfo && existingInfo.classList.contains('bg-blue-50')) {
+            existingInfo.remove();
+          }
+
+          calendar.parentNode.insertBefore(infoDiv, calendar);
+        })
+        .apiGetConfig(configKey);
     }
 
     // 提出ロック状態をチェック
@@ -493,7 +546,11 @@
       const calendarDiv = document.getElementById('calendar');
       calendarDiv.innerHTML = '';
 
-      selectedDates = existingRequests.map(req => new Date(req['日付']).getDate());
+      // existingRequestsから選択された日付と優先順位を復元
+      selectedRequests = existingRequests.map(req => ({
+        day: new Date(req['日付']).getDate(),
+        priority: req['優先順位'] || 1
+      }));
 
       const daysInMonth = new Date(year, month, 0).getDate();
       const firstDay = new Date(year, month - 1, 1).getDay();
@@ -516,7 +573,8 @@
       for (let day = 1; day <= daysInMonth; day++) {
         const date = new Date(year, month - 1, day);
         const dayOfWeek = date.getDay();
-        const isSelected = selectedDates.includes(day);
+        const request = selectedRequests.find(r => r.day === day);
+        const isSelected = !!request;
 
         let bgColor = isSelected ? 'bg-blue-500 text-white' : 'bg-white hover:bg-blue-100';
         let textColor = dayOfWeek === 0 ? 'text-red-600' : dayOfWeek === 6 ? 'text-blue-600' : 'text-gray-700';
@@ -525,33 +583,115 @@
           textColor = 'text-white';
         }
 
-        html += `<div class="calendar-day ${isSelected ? 'selected' : ''} ${bgColor} ${textColor} border border-gray-300 rounded p-2 text-center"
+        // 優先順位バッジを表示
+        const priorityBadge = isSelected ? `<span class="text-xs">第${request.priority}希望</span>` : '';
+
+        html += `<div class="calendar-day ${isSelected ? 'selected' : ''} ${bgColor} ${textColor} border border-gray-300 rounded p-2 text-center cursor-pointer"
                      onclick="toggleDate(${day})">
-                  ${day}
+                  <div class="font-bold">${day}</div>
+                  ${priorityBadge}
                 </div>`;
       }
 
       html += '</div>';
       calendarDiv.innerHTML = html;
+
+      // 選択された日付の一覧を更新
+      renderSelectedRequestsList(year, month);
     }
 
     // 日付選択トグル
     function toggleDate(day) {
-      const index = selectedDates.indexOf(day);
-      if (index >= 0) {
-        selectedDates.splice(index, 1);
+      const requestIndex = selectedRequests.findIndex(r => r.day === day);
+      if (requestIndex >= 0) {
+        // 既に選択されている場合は削除
+        selectedRequests.splice(requestIndex, 1);
       } else {
-        selectedDates.push(day);
+        // 新規選択の場合はデフォルト優先順位1で追加
+        selectedRequests.push({ day: day, priority: 1 });
       }
 
       const targetMonth = document.getElementById('targetMonth').value;
       const [year, month] = targetMonth.split('-').map(Number);
-      renderCalendar(year, month, selectedDates.map(d => ({ '日付': new Date(year, month - 1, d) })));
+
+      // カレンダーを再描画
+      const existingRequests = selectedRequests.map(r => ({
+        '日付': new Date(year, month - 1, r.day),
+        '優先順位': r.priority
+      }));
+      renderCalendar(year, month, existingRequests);
+
+      // 選択中の日数を更新
+      const selectedCountElem = document.getElementById('selectedCount');
+      if (selectedCountElem) {
+        selectedCountElem.textContent = `${selectedRequests.length}日`;
+      }
     }
 
-    // 休み希望保存
+    // 選択された休み希望の一覧を表示
+    function renderSelectedRequestsList(year, month) {
+      const container = document.getElementById('selectedDatesContainer');
+      const tbody = document.getElementById('selectedDatesList');
+
+      if (selectedRequests.length === 0) {
+        container.classList.add('hidden');
+        return;
+      }
+
+      container.classList.remove('hidden');
+
+      // 日付でソート
+      const sortedRequests = [...selectedRequests].sort((a, b) => a.day - b.day);
+
+      let html = '';
+      sortedRequests.forEach((request, index) => {
+        html += `
+          <tr class="border-b">
+            <td class="py-2 px-2">${month}月${request.day}日</td>
+            <td class="py-2 px-2">
+              <select onchange="updatePriority(${request.day}, this.value)" class="border border-gray-300 rounded px-2 py-1">
+                ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(p =>
+                  `<option value="${p}" ${p === request.priority ? 'selected' : ''}>第${p}希望</option>`
+                ).join('')}
+              </select>
+            </td>
+            <td class="py-2 px-2 text-center">
+              <button onclick="removeRequest(${request.day})" class="text-red-600 hover:text-red-800">
+                削除
+              </button>
+            </td>
+          </tr>
+        `;
+      });
+
+      tbody.innerHTML = html;
+    }
+
+    // 優先順位を更新
+    function updatePriority(day, priority) {
+      const request = selectedRequests.find(r => r.day === day);
+      if (request) {
+        request.priority = parseInt(priority);
+
+        // カレンダーを再描画（優先順位バッジを更新）
+        const targetMonth = document.getElementById('targetMonth').value;
+        const [year, month] = targetMonth.split('-').map(Number);
+        const existingRequests = selectedRequests.map(r => ({
+          '日付': new Date(year, month - 1, r.day),
+          '優先順位': r.priority
+        }));
+        renderCalendar(year, month, existingRequests);
+      }
+    }
+
+    // 休み希望を削除
+    function removeRequest(day) {
+      toggleDate(day);  // トグルで削除
+    }
+
+    // 休み希望保存（上限チェック付き）
     function saveHolidayRequest() {
-      if (selectedDates.length === 0) {
+      if (selectedRequests.length === 0) {
         alert('日付を選択してください');
         return;
       }
@@ -560,34 +700,90 @@
       const [year, month] = targetMonth.split('-').map(Number);
       const notes = document.getElementById('requestNotes').value;
 
-      // DateオブジェクトをISO文字列に変換（GASで受け取れる形式に）
-      const dateList = selectedDates.map(day => {
-        const date = new Date(year, month - 1, day);
-        return date.toISOString();
-      });
+      // 上限チェック: 月間公休数を取得
+      const configKey = `MONTHLY_HOLIDAYS_${year}${String(month).padStart(2, '0')}`;
 
       showLoading();
 
+      // まず公休数の上限を取得
       google.script.run
-        .withSuccessHandler(function(result) {
-          hideLoading();
-          if (result && result.success) {
-            showMessage('holidayMessage', result.message, 'success');
-          } else {
-            showMessage('holidayMessage', result ? result.message : 'エラーが発生しました', 'error');
+        .withSuccessHandler(function(configResult) {
+          // デフォルト9日
+          const maxHolidays = configResult.value ? parseFloat(configResult.value) : 9;
+
+          // 上限チェック
+          if (selectedRequests.length > maxHolidays) {
+            hideLoading();
+            alert(`⚠️ 休みすぎです！\n\n選択された日数: ${selectedRequests.length}日\n月間公休上限: ${maxHolidays}日\n\n公休上限を超えています。日数を減らしてください。`);
+            return;
           }
+
+          // 上限内なので保存処理を実行
+          // requestList: [{date: ISO文字列, priority: 数値}]
+          const requestList = selectedRequests.map(req => {
+            const date = new Date(year, month - 1, req.day);
+            return {
+              date: date.toISOString(),
+              priority: req.priority
+            };
+          });
+
+          google.script.run
+            .withSuccessHandler(function(result) {
+              hideLoading();
+              if (result && result.success) {
+                showMessage('holidayMessage', result.message, 'success');
+              } else {
+                showMessage('holidayMessage', result ? result.message : 'エラーが発生しました', 'error');
+              }
+            })
+            .withFailureHandler(function(error) {
+              hideLoading();
+              showMessage('holidayMessage', 'エラーが発生しました', 'error');
+              console.error(error);
+            })
+            .apiSaveHolidayRequest(currentSession.name, requestList, notes);
         })
         .withFailureHandler(function(error) {
           hideLoading();
-          showMessage('holidayMessage', 'エラーが発生しました', 'error');
-          console.error(error);
+          console.error('設定取得エラー:', error);
+          // エラーでもデフォルト値9日で続行
+          if (selectedRequests.length > 9) {
+            alert(`⚠️ 休みすぎです！\n\n選択された日数: ${selectedRequests.length}日\nデフォルト公休上限: 9日\n\n公休上限を超えています。日数を減らしてください。`);
+            return;
+          }
+
+          // 保存処理を実行
+          const requestList = selectedRequests.map(req => {
+            const date = new Date(year, month - 1, req.day);
+            return {
+              date: date.toISOString(),
+              priority: req.priority
+            };
+          });
+
+          google.script.run
+            .withSuccessHandler(function(result) {
+              hideLoading();
+              if (result && result.success) {
+                showMessage('holidayMessage', result.message, 'success');
+              } else {
+                showMessage('holidayMessage', result ? result.message : 'エラーが発生しました', 'error');
+              }
+            })
+            .withFailureHandler(function(error) {
+              hideLoading();
+              showMessage('holidayMessage', 'エラーが発生しました', 'error');
+              console.error(error);
+            })
+            .apiSaveHolidayRequest(currentSession.name, requestList, notes);
         })
-        .apiSaveHolidayRequest(currentSession.name, dateList, notes);
+        .apiGetConfig(configKey);
     }
 
     // 休み希望クリア
     function clearHolidayRequest() {
-      selectedDates = [];
+      selectedRequests = [];
       const targetMonth = document.getElementById('targetMonth').value;
       const [year, month] = targetMonth.split('-').map(Number);
       renderCalendar(year, month, []);
