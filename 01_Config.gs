@@ -85,3 +85,70 @@ function getAdminEmail() {
   const props = PropertiesService.getScriptProperties();
   return props.getProperty('ADMIN_EMAIL') || Session.getActiveUser().getEmail();
 }
+
+// ============================================
+// Drive設定管理
+// ============================================
+
+/**
+ * DriveフォルダIDを設定
+ * 初回セットアップ時に実行
+ */
+function setupDriveFolders() {
+  const ui = SpreadsheetApp.getUi();
+
+  const inputFolderResponse = ui.prompt(
+    'DriveフォルダID設定 (1/4)',
+    'inputフォルダのIDを入力してください:\n（T_休み希望.csv格納用）',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (inputFolderResponse.getSelectedButton() !== ui.Button.OK) return;
+  const inputFolderId = inputFolderResponse.getResponseText();
+
+  const outputFolderResponse = ui.prompt(
+    'DriveフォルダID設定 (2/4)',
+    'outputフォルダのIDを入力してください:\n（シフト結果.csv格納用）',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (outputFolderResponse.getSelectedButton() !== ui.Button.OK) return;
+  const outputFolderId = outputFolderResponse.getResponseText();
+
+  const archiveFolderResponse = ui.prompt(
+    'DriveフォルダID設定 (3/4)',
+    'archiveフォルダのIDを入力してください:\n（過去データ保管用）',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (archiveFolderResponse.getSelectedButton() !== ui.Button.OK) return;
+  const archiveFolderId = archiveFolderResponse.getResponseText();
+
+  const tokenResponse = ui.prompt(
+    'Webhookトークン設定 (4/4)',
+    'Webhook認証用のトークンを入力してください:\n（任意の文字列、Colab側と共有）',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (tokenResponse.getSelectedButton() !== ui.Button.OK) return;
+  const webhookToken = tokenResponse.getResponseText();
+
+  // M_設定シートに保存
+  setConfig('DRIVE_FOLDER_INPUT', inputFolderId);
+  setConfig('DRIVE_FOLDER_OUTPUT', outputFolderId);
+  setConfig('DRIVE_FOLDER_ARCHIVE', archiveFolderId);
+
+  // スクリプトプロパティにWebhookトークンを保存
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('WEBHOOK_TOKEN', webhookToken);
+
+  ui.alert('✅ Drive設定完了',
+    `inputフォルダ: ${inputFolderId}\n` +
+    `outputフォルダ: ${outputFolderId}\n` +
+    `archiveフォルダ: ${archiveFolderId}\n` +
+    `Webhookトークン: ${webhookToken.substring(0, 10)}...`,
+    ui.ButtonSet.OK
+  );
+
+  console.log('Drive設定完了');
+}

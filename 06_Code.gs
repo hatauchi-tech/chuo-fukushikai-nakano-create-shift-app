@@ -22,6 +22,45 @@ function doGet(e) {
   }
 }
 
+/**
+ * WebアプリのPOSTリクエスト処理（Webhook受信）
+ */
+function doPost(e) {
+  try {
+    console.log('Webhook受信');
+
+    const requestData = JSON.parse(e.postData.contents);
+    const action = requestData.action;
+
+    let result;
+
+    if (action === 'importShiftResult') {
+      // シフト結果CSVのインポート
+      result = handleShiftResultWebhook(requestData);
+    } else {
+      result = {
+        success: false,
+        message: '不明なアクション: ' + action,
+        code: 400
+      };
+    }
+
+    return ContentService.createTextOutput(
+      JSON.stringify(result)
+    ).setMimeType(ContentService.MimeType.JSON);
+
+  } catch (error) {
+    console.error('doPostエラー:', error);
+    return ContentService.createTextOutput(
+      JSON.stringify({
+        success: false,
+        message: 'エラーが発生しました: ' + error.message,
+        code: 500
+      })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
 // ============================================
 // カスタムメニュー
 // ============================================
@@ -35,11 +74,16 @@ function onOpen() {
   ui.createMenu('📅 シフト管理')
     .addItem('🌐 Webアプリを開く', 'openWebApp')
     .addSeparator()
-    .addItem('✨ シフト案作成', 'showCreateShiftDialog')
+    .addSubMenu(ui.createMenu('📤 CSV連携')
+      .addItem('📤 休み希望CSV出力', 'showExportHolidayCSVDialog')
+      .addItem('📥 シフト結果CSV取込', 'showImportShiftCSVDialog'))
+    .addSeparator()
     .addItem('✅ ルールチェック', 'showRuleCheckDialog')
     .addItem('📝 シフト登録', 'showRegisterShiftDialog')
     .addSeparator()
-    .addItem('🔧 初期設定', 'initializeAllSheets')
+    .addSubMenu(ui.createMenu('⚙️ 設定')
+      .addItem('🔧 初期設定', 'initializeAllSheets')
+      .addItem('📁 Drive設定', 'setupDriveFolders'))
     .addToUi();
 
   console.log('カスタムメニュー追加完了');
@@ -69,14 +113,13 @@ function openWebApp() {
 }
 
 /**
- * シフト案作成ダイアログ（1段階入力）
+ * 休み希望CSV出力ダイアログ
  */
-function showCreateShiftDialog() {
+function showExportHolidayCSVDialog() {
   const ui = SpreadsheetApp.getUi();
 
-  // 年月入力
   const monthResponse = ui.prompt(
-    'シフト案作成',
+    '休み希望CSV出力',
     '対象年月を入力してください (例: 2025/01)',
     ui.ButtonSet.OK_CANCEL
   );
@@ -91,16 +134,55 @@ function showCreateShiftDialog() {
     return;
   }
 
-  // M_設定シートから月間公休日数を取得
-  const configKey = `MONTHLY_HOLIDAYS_${year}${String(month).padStart(2, '0')}`;
-  const configResult = getConfig(configKey);
-  let monthlyHolidays = configResult.value ? parseFloat(configResult.value) : 9;  // デフォルト9日
+  // CSV出力実行
+  const result = exportHolidayRequestToCSV(year, month);
 
-  console.log(`${year}年${month}月の月間公休日数: ${monthlyHolidays}日 (設定キー: ${configKey})`);
+  if (result.success) {
+    ui.alert(
+      '✅ CSV出力完了',
+      `${result.message}\n\nファイル名: ${result.fileName}\n\n次のステップ:\n1. Google Driveのinputフォルダを確認\n2. Google Colabでシフト計算を実行`,
+      ui.ButtonSet.OK
+    );
+  } else {
+    ui.alert('❌ エラー', result.message, ui.ButtonSet.OK);
+  }
+}
 
-  // シフト案作成実行
-  const result = createShiftDraft(year, month, monthlyHolidays);
-  ui.alert(result.message);
+/**
+ * シフト結果CSV取込ダイアログ
+ */
+function showImportShiftCSVDialog() {
+  const ui = SpreadsheetApp.getUi();
+
+  const fileIdResponse = ui.prompt(
+    'シフト結果CSV取込',
+    'DriveファイルIDを入力してください:\n（outputフォルダ内の「シフト結果_YYYYMM.csv」）',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (fileIdResponse.getSelectedButton() !== ui.Button.OK) return;
+
+  const fileId = fileIdResponse.getResponseText().trim();
+
+  if (!fileId) {
+    ui.alert('ファイルIDを入力してください');
+    return;
+  }
+
+  // CSV取込実行
+  ui.alert('処理中...', 'CSV取込を実行しています。しばらくお待ちください。', ui.ButtonSet.OK);
+
+  const result = importShiftResultFromCSV(fileId);
+
+  if (result.success) {
+    ui.alert(
+      '✅ CSV取込完了',
+      `${result.message}\n\n次のステップ:\n1. シフト作業用シートで内容を確認\n2. 手修正が必要な場合は編集\n3. ルールチェックを実行\n4. シフト登録でカレンダーに反映`,
+      ui.ButtonSet.OK
+    );
+  } else {
+    ui.alert('❌ エラー', result.message, ui.ButtonSet.OK);
+  }
 }
 
 /**
@@ -420,6 +502,30 @@ function apiSetConfig(key, value) {
     return { success: true, message: '設定を保存しました' };
   } catch (e) {
     console.error('設定保存エラー:', e);
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * 休み希望CSV出力
+ */
+function apiExportHolidayRequestToCSV(year, month) {
+  try {
+    return exportHolidayRequestToCSV(year, month);
+  } catch (e) {
+    console.error('CSV出力エラー:', e);
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * シフト結果CSV取込
+ */
+function apiImportShiftResultFromCSV(fileId) {
+  try {
+    return importShiftResultFromCSV(fileId);
+  } catch (e) {
+    console.error('CSV取込エラー:', e);
     return { success: false, message: e.message };
   }
 }
