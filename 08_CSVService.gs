@@ -13,8 +13,17 @@ const CSV_SCHEMA = {
     required: ['氏名', 'グループ', '日付', '優先順位']
   },
   SHIFT_RESULT: {
-    headers: ['氏名', 'グループ', '日付', 'シフト名', '開始時間', '終了時間'],
-    required: ['氏名', 'グループ', '日付', 'シフト名']
+    // Python出力形式に合わせたヘッダー
+    headers: ['確定シフトID', '氏名', 'グループ', 'シフト名', '勤務開始日', '開始時間', '勤務終了日', '終了時間', '登録日時', 'カレンダーイベントID'],
+    required: ['氏名', 'グループ', 'シフト名', '勤務開始日']
+  },
+  STAFF: {
+    headers: ['職員ID', '氏名', 'グループ', 'ユニット', '雇用形態', '喀痰吸引資格者', '勤務配慮', '有効'],
+    required: ['職員ID', '氏名', 'グループ']
+  },
+  SETTINGS: {
+    headers: ['設定ID', '設定値'],
+    required: ['設定ID', '設定値']
   }
 };
 
@@ -47,6 +56,13 @@ function exportHolidayRequestToCSV(year, month) {
     const priorityIndex = headers.indexOf('優先順位');
     const notesIndex = headers.indexOf('特記事項');
 
+    // 職員データを最初に1回だけ取得してキャッシュ（パフォーマンス改善）
+    const allStaff = getAllStaff();
+    const staffMap = {};
+    allStaff.forEach(staff => {
+      staffMap[staff['氏名']] = staff;
+    });
+
     // 対象月のデータをフィルタ
     const filteredRows = [];
     for (let i = 1; i < data.length; i++) {
@@ -54,8 +70,8 @@ function exportHolidayRequestToCSV(year, month) {
       const date = new Date(row[dateIndex]);
 
       if (date.getFullYear() === year && date.getMonth() + 1 === month) {
-        // グループ情報を追加するため、職員マスタから取得
-        const staff = getStaffByName(row[nameIndex]);
+        // キャッシュからグループ情報を取得
+        const staff = staffMap[row[nameIndex]];
         const group = staff ? staff['グループ'] : '';
 
         filteredRows.push([
@@ -75,7 +91,7 @@ function exportHolidayRequestToCSV(year, month) {
     // CSVデータ作成
     const csvHeaders = CSV_SCHEMA.HOLIDAY_REQUEST.headers;
     const csvRows = [csvHeaders, ...filteredRows];
-    const csvContent = csvRows.map(row => row.join(','')).join('\n');
+    const csvContent = csvRows.map(row => row.join(',')).join('\n');
 
     // Driveに保存
     const fileName = `T_休み希望_${year}${String(month).padStart(2, '0')}.csv`;
@@ -100,12 +116,192 @@ function exportHolidayRequestToCSV(year, month) {
   }
 }
 
+// ============================================
+// CSV出力機能（M_職員）
+// ============================================
+
 /**
- * 氏名で職員を検索（02_DataService.gsに追加すべき関数）
+ * 職員マスタをCSV出力
+ * @param {number} year - 対象年
+ * @param {number} month - 対象月
+ * @return {Object} 結果オブジェクト
  */
-function getStaffByName(name) {
-  const allStaff = getAllStaff();
-  return allStaff.find(staff => staff['氏名'] === name);
+function exportStaffToCSV(year, month) {
+  try {
+    console.log(`M_職員CSV出力開始: ${year}年${month}月`);
+
+    const staffList = getActiveStaff();
+
+    if (staffList.length === 0) {
+      throw new Error('出力する職員データがありません');
+    }
+
+    // CSVデータ作成
+    const csvHeaders = CSV_SCHEMA.STAFF.headers;
+    const csvRows = [csvHeaders];
+
+    staffList.forEach(staff => {
+      csvRows.push([
+        staff['職員ID'] || '',
+        staff['氏名'] || '',
+        staff['グループ'] || '',
+        staff['ユニット'] || '',
+        staff['雇用形態'] || '',
+        staff['喀痰吸引資格者'] ? 'TRUE' : 'FALSE',
+        staff['勤務配慮'] ? 'TRUE' : 'FALSE',
+        staff['有効'] ? 'TRUE' : 'FALSE'
+      ]);
+    });
+
+    const csvContent = csvRows.map(row => row.join(',')).join('\n');
+
+    // Driveに保存（YYYYMM形式のファイル名）
+    const yearMonth = `${year}${String(month).padStart(2, '0')}`;
+    const fileName = `M_職員_${yearMonth}.csv`;
+    const fileId = saveToDrive(fileName, csvContent, 'input');
+
+    console.log(`M_職員CSV出力完了: ${staffList.length}件`);
+
+    return {
+      success: true,
+      fileName: fileName,
+      fileId: fileId,
+      count: staffList.length,
+      message: `${staffList.length}件の職員データをCSV出力しました`
+    };
+
+  } catch (e) {
+    console.error('M_職員CSV出力エラー:', e);
+    return {
+      success: false,
+      message: 'エラーが発生しました: ' + e.message
+    };
+  }
+}
+
+// ============================================
+// CSV出力機能（M_設定）
+// ============================================
+
+/**
+ * 設定データをCSV出力（対象月の設定のみ）
+ * @param {number} year - 対象年
+ * @param {number} month - 対象月
+ * @return {Object} 結果オブジェクト
+ */
+function exportSettingsToCSV(year, month) {
+  try {
+    console.log(`M_設定CSV出力開始: ${year}年${month}月`);
+
+    const yearMonth = `${year}${String(month).padStart(2, '0')}`;
+
+    // 必要な設定を取得
+    const settings = [];
+
+    // 公休日数
+    const holidaysKey = `MONTHLY_HOLIDAYS_${yearMonth}`;
+    const holidaysValue = getConfig(holidaysKey, 9);
+    settings.push([holidaysKey, holidaysValue]);
+
+    // 対象年月
+    settings.push(['TARGET_YEAR', year]);
+    settings.push(['TARGET_MONTH', month]);
+
+    // 月の日数
+    const daysInMonth = new Date(year, month, 0).getDate();
+    settings.push(['DAYS_IN_MONTH', daysInMonth]);
+
+    // CSVデータ作成
+    const csvHeaders = CSV_SCHEMA.SETTINGS.headers;
+    const csvRows = [csvHeaders, ...settings];
+    const csvContent = csvRows.map(row => row.join(',')).join('\n');
+
+    // Driveに保存
+    const fileName = `M_設定_${yearMonth}.csv`;
+    const fileId = saveToDrive(fileName, csvContent, 'input');
+
+    console.log(`M_設定CSV出力完了: ${settings.length}件`);
+
+    return {
+      success: true,
+      fileName: fileName,
+      fileId: fileId,
+      count: settings.length,
+      message: `${settings.length}件の設定をCSV出力しました`
+    };
+
+  } catch (e) {
+    console.error('M_設定CSV出力エラー:', e);
+    return {
+      success: false,
+      message: 'エラーが発生しました: ' + e.message
+    };
+  }
+}
+
+// ============================================
+// 3種CSV一括出力
+// ============================================
+
+/**
+ * シフト作成用の3種類CSVを一括出力
+ * @param {number} year - 対象年
+ * @param {number} month - 対象月
+ * @return {Object} 結果オブジェクト
+ */
+function exportAllCSVForShiftCreation(year, month) {
+  try {
+    console.log(`シフト作成用CSV一括出力開始: ${year}年${month}月`);
+
+    const results = {
+      holidayRequest: null,
+      staff: null,
+      settings: null
+    };
+
+    // 1. 休み希望CSV
+    results.holidayRequest = exportHolidayRequestToCSV(year, month);
+    if (!results.holidayRequest.success) {
+      // 休み希望がなくても他のCSVは出力を続ける
+      console.log('休み希望データなし、スキップ');
+    }
+
+    // 2. 職員CSV（年月付きファイル名で出力）
+    results.staff = exportStaffToCSV(year, month);
+    if (!results.staff.success) {
+      throw new Error('職員CSV出力に失敗: ' + results.staff.message);
+    }
+
+    // 3. 設定CSV
+    results.settings = exportSettingsToCSV(year, month);
+    if (!results.settings.success) {
+      throw new Error('設定CSV出力に失敗: ' + results.settings.message);
+    }
+
+    // 結果サマリー
+    const outputFiles = [];
+    if (results.holidayRequest && results.holidayRequest.success) {
+      outputFiles.push(results.holidayRequest.fileName);
+    }
+    outputFiles.push(results.staff.fileName);
+    outputFiles.push(results.settings.fileName);
+
+    console.log(`シフト作成用CSV一括出力完了: ${outputFiles.length}ファイル`);
+
+    return {
+      success: true,
+      files: outputFiles,
+      details: results,
+      message: `${outputFiles.length}ファイルを出力しました: ${outputFiles.join(', ')}`
+    };
+
+  } catch (e) {
+    console.error('CSV一括出力エラー:', e);
+    return {
+      success: false,
+      message: 'エラーが発生しました: ' + e.message
+    };
+  }
 }
 
 // ============================================
@@ -142,21 +338,32 @@ function importShiftResultFromCSV(fileId) {
     const headers = csvData[0];
     const dataRows = csvData.slice(1);
 
+    // Python出力形式のカラムインデックス
+    const shiftIdIndex = headers.indexOf('確定シフトID');
     const nameIndex = headers.indexOf('氏名');
     const groupIndex = headers.indexOf('グループ');
-    const dateIndex = headers.indexOf('日付');
     const shiftIndex = headers.indexOf('シフト名');
+    const startDateIndex = headers.indexOf('勤務開始日');
     const startTimeIndex = headers.indexOf('開始時間');
+    const endDateIndex = headers.indexOf('勤務終了日');
     const endTimeIndex = headers.indexOf('終了時間');
 
     // 年月を抽出（最初のデータから）
-    const firstDate = new Date(dataRows[0][dateIndex]);
+    const firstDate = new Date(dataRows[0][startDateIndex]);
     const year = firstDate.getFullYear();
     const month = firstDate.getMonth() + 1;
 
     // 既存の確定シフトを削除
     console.log(`既存データ削除: ${year}年${month}月`);
     deleteConfirmedShiftByMonth(year, month);
+
+    // 職員データを最初に1回だけ取得してキャッシュ（パフォーマンス改善）
+    const allStaff = getAllStaff();
+    const staffMap = {};
+    allStaff.forEach(staff => {
+      staffMap[staff['氏名']] = staff;
+    });
+    console.log(`職員キャッシュ作成: ${allStaff.length}件`);
 
     // 一括保存用の配列
     const shiftsToSave = [];
@@ -169,24 +376,30 @@ function importShiftResultFromCSV(fileId) {
         return;
       }
 
-      const date = new Date(row[dateIndex]);
+      const startDate = new Date(row[startDateIndex]);
       const startTime = row[startTimeIndex] || '00:00';
       const endTime = row[endTimeIndex] || '00:00';
 
-      // 終了日を計算（夜勤など、終了時刻が開始時刻より早い場合は翌日）
-      let endDate = new Date(date);
-      if (endTime && startTime && endTime < startTime) {
-        endDate.setDate(endDate.getDate() + 1);
+      // 終了日を取得（Python側で既に計算済み）
+      let endDate;
+      if (row[endDateIndex] && row[endDateIndex] !== '') {
+        endDate = new Date(row[endDateIndex]);
+      } else {
+        // 終了日がない場合は開始日と同じ
+        endDate = new Date(startDate);
+        if (endTime && startTime && endTime < startTime) {
+          endDate.setDate(endDate.getDate() + 1);
+        }
       }
 
-      // 職員情報を取得してカレンダーIDを追加
-      const staff = getStaffByName(row[nameIndex]);
+      // キャッシュから職員情報を取得（スプレッドシートアクセスなし）
+      const staff = staffMap[row[nameIndex]];
 
       shiftsToSave.push({
         '氏名': row[nameIndex],
         'グループ': row[groupIndex],
         'シフト名': shiftName,
-        '勤務開始日': date,
+        '勤務開始日': startDate,
         '開始時間': startTime,
         '勤務終了日': endDate,
         '終了時間': endTime,
@@ -227,9 +440,9 @@ function importShiftResultFromCSV(fileId) {
 function validateShiftResultCSV(csvData) {
   const errors = [];
 
-  // ヘッダーチェック
+  // ヘッダーチェック（必須ヘッダーのみチェック）
   const headers = csvData[0];
-  const requiredHeaders = CSV_SCHEMA.SHIFT_RESULT.headers;
+  const requiredHeaders = CSV_SCHEMA.SHIFT_RESULT.required;
 
   requiredHeaders.forEach(header => {
     if (!headers.includes(header)) {
@@ -244,7 +457,7 @@ function validateShiftResultCSV(csvData) {
 
   // 各行のバリデーション（サンプル：最初の5行のみ）
   const nameIndex = headers.indexOf('氏名');
-  const dateIndex = headers.indexOf('日付');
+  const startDateIndex = headers.indexOf('勤務開始日');
   const shiftIndex = headers.indexOf('シフト名');
 
   for (let i = 1; i < Math.min(csvData.length, 6); i++) {
@@ -254,12 +467,12 @@ function validateShiftResultCSV(csvData) {
       errors.push(`${i + 1}行目: 氏名が空です`);
     }
 
-    if (!row[dateIndex]) {
-      errors.push(`${i + 1}行目: 日付が空です`);
+    if (!row[startDateIndex]) {
+      errors.push(`${i + 1}行目: 勤務開始日が空です`);
     } else {
-      const date = new Date(row[dateIndex]);
+      const date = new Date(row[startDateIndex]);
       if (isNaN(date.getTime())) {
-        errors.push(`${i + 1}行目: 日付形式が不正です (${row[dateIndex]})`);
+        errors.push(`${i + 1}行目: 勤務開始日の形式が不正です (${row[startDateIndex]})`);
       }
     }
 
@@ -335,16 +548,17 @@ function archiveFile(file) {
 }
 
 /**
- * DriveフォルダIDを取得
+ * DriveフォルダIDを取得（スクリプトプロパティから）
  * @param {string} folderType - 'input', 'output', 'archive'
  * @return {string} フォルダID
  */
 function getDriveFolderId(folderType) {
+  const props = PropertiesService.getScriptProperties();
   const configKey = `DRIVE_FOLDER_${folderType.toUpperCase()}`;
-  const folderId = getConfig(configKey);
+  const folderId = props.getProperty(configKey);
 
   if (!folderId) {
-    throw new Error(`${folderType}フォルダのIDが設定されていません（設定キー: ${configKey}）`);
+    throw new Error(`${folderType}フォルダのIDがスクリプトプロパティに設定されていません（設定キー: ${configKey}）`);
   }
 
   return folderId;

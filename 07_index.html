@@ -67,6 +67,16 @@
             </button>
           </li>
           <li>
+            <button onclick="showView('shift-management')" class="nav-btn px-4 py-2 rounded hover:bg-blue-100 transition bg-green-50 border border-green-200">
+              シフト管理
+            </button>
+          </li>
+          <li>
+            <button onclick="showView('shift-edit')" class="nav-btn px-4 py-2 rounded hover:bg-blue-100 transition bg-orange-50 border border-orange-200">
+              シフト修正
+            </button>
+          </li>
+          <li>
             <button onclick="showView('staff-master')" class="nav-btn px-4 py-2 rounded hover:bg-blue-100 transition">
               職員マスタ管理
             </button>
@@ -338,6 +348,192 @@
         </div>
       </div>
 
+      <!-- シフト管理画面（管理者専用） -->
+      <div id="shiftManagementView" class="hidden">
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h2 class="text-2xl font-bold mb-6 text-gray-800">シフト管理</h2>
+          <p class="text-gray-600 mb-6">シフト作成に必要なCSV出力や、提出締切の管理を行います。</p>
+
+          <!-- 対象月選択 -->
+          <div class="mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2">対象月</label>
+            <input type="month" id="shiftMgmtTargetMonth"
+              class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              onchange="loadShiftManagementStatus()">
+          </div>
+
+          <!-- 月次設定カード -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <!-- 公休日数設定 -->
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h3 class="text-lg font-semibold text-blue-800 mb-3">公休日数設定</h3>
+              <div class="flex items-center space-x-4">
+                <input type="number" id="monthlyHolidaysInput" min="1" max="31"
+                  class="w-20 px-3 py-2 border border-gray-300 rounded-lg text-center text-lg font-bold">
+                <span class="text-gray-700">日</span>
+                <button onclick="saveMonthlyHolidays()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">
+                  保存
+                </button>
+              </div>
+              <p class="text-sm text-blue-600 mt-2">職員が選択できる休み希望の上限数です</p>
+            </div>
+
+            <!-- 提出締切設定 -->
+            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <h3 class="text-lg font-semibold text-yellow-800 mb-3">提出締切設定</h3>
+              <div id="submissionLockStatus" class="mb-3">
+                <!-- 状態が動的に表示される -->
+              </div>
+              <div class="flex space-x-2">
+                <button onclick="toggleSubmissionLock(true)" id="lockButton" class="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition">
+                  締切（ロック）
+                </button>
+                <button onclick="toggleSubmissionLock(false)" id="unlockButton" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition">
+                  受付中（解除）
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- シフト作成フロー -->
+          <div class="bg-gray-50 border border-gray-200 rounded-lg p-6">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">シフト作成フロー</h3>
+
+            <div class="space-y-4">
+              <!-- ステップ1: CSV出力 -->
+              <div class="flex items-start space-x-4 p-4 bg-white rounded-lg border border-gray-200">
+                <div class="flex-shrink-0 w-10 h-10 bg-green-500 text-white rounded-full flex items-center justify-center font-bold">1</div>
+                <div class="flex-grow">
+                  <h4 class="font-semibold text-gray-800">シフト作成用CSV一括出力</h4>
+                  <p class="text-sm text-gray-600 mb-3">シフト最適化に必要な3種類のCSVをGoogleドライブに出力します。</p>
+                  <ul class="text-xs text-gray-500 mb-3 list-disc list-inside">
+                    <li>T_休み希望_YYYYMM.csv - 休み希望データ</li>
+                    <li>M_職員_YYYYMM.csv - 職員マスタ</li>
+                    <li>M_設定_YYYYMM.csv - 月間設定</li>
+                  </ul>
+                  <button onclick="exportAllCSVForShiftCreation()" class="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition">
+                    3種CSV一括出力
+                  </button>
+                  <div id="csvExportResult" class="mt-2 text-sm"></div>
+                </div>
+              </div>
+
+              <!-- ステップ2: Python実行（説明のみ） -->
+              <div class="flex items-start space-x-4 p-4 bg-white rounded-lg border border-gray-200">
+                <div class="flex-shrink-0 w-10 h-10 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold">2</div>
+                <div class="flex-grow">
+                  <h4 class="font-semibold text-gray-800">シフト最適化実行（Google Colab）</h4>
+                  <p class="text-sm text-gray-600">Google Colabでシフト最適化Pythonを実行してください。</p>
+                  <p class="text-sm text-gray-500 mt-1">→ 結果CSVがGoogleドライブのoutputフォルダに保存されます。</p>
+                </div>
+              </div>
+
+              <!-- ステップ3: CSV取込 -->
+              <div class="flex items-start space-x-4 p-4 bg-white rounded-lg border border-gray-200">
+                <div class="flex-shrink-0 w-10 h-10 bg-purple-500 text-white rounded-full flex items-center justify-center font-bold">3</div>
+                <div class="flex-grow">
+                  <h4 class="font-semibold text-gray-800">シフト結果CSV取込</h4>
+                  <p class="text-sm text-gray-600 mb-3">対象月のシフト結果CSVを自動で検索して取り込みます。</p>
+                  <p class="text-xs text-gray-500 mb-3">対象ファイル: シフト結果_YYYYMM.csv</p>
+                  <button onclick="importShiftCSVByMonth()" class="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 transition">
+                    シフト結果取込
+                  </button>
+                  <div id="csvImportResult" class="mt-2 text-sm"></div>
+                </div>
+              </div>
+
+              <!-- ステップ4: 確認・修正・カレンダー登録 -->
+              <div class="flex items-start space-x-4 p-4 bg-white rounded-lg border border-orange-300 bg-orange-50">
+                <div class="flex-shrink-0 w-10 h-10 bg-orange-500 text-white rounded-full flex items-center justify-center font-bold">4</div>
+                <div class="flex-grow">
+                  <h4 class="font-semibold text-gray-800">シフト確認・修正・カレンダー登録</h4>
+                  <p class="text-sm text-gray-600 mb-3">「シフト修正」画面でグループごとにシフトを確認・修正し、確定してカレンダーに登録します。</p>
+                  <button onclick="showView('shift-edit')" class="bg-orange-600 text-white px-6 py-2 rounded-lg hover:bg-orange-700 transition">
+                    シフト修正画面へ
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="shiftManagementMessage" class="mt-4 hidden"></div>
+        </div>
+      </div>
+
+      <!-- シフト修正画面 -->
+      <div id="shiftEditView" class="hidden">
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h2 class="text-2xl font-bold mb-6 text-gray-800">シフト修正</h2>
+          <p class="text-gray-600 mb-6">グループを選択してシフトの確認・修正を行います。</p>
+
+          <!-- グループ・月選択 -->
+          <div class="flex flex-wrap gap-4 mb-6">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">対象月</label>
+              <input type="month" id="shiftEditTargetMonth"
+                class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">グループ</label>
+              <select id="shiftEditGroup"
+                class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <option value="">-- 選択 --</option>
+              </select>
+            </div>
+            <div class="flex items-end">
+              <button onclick="loadShiftEditData()" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">
+                表示
+              </button>
+            </div>
+          </div>
+
+          <!-- シフト編集テーブル -->
+          <div id="shiftEditTableContainer" class="hidden">
+            <!-- 凡例 -->
+            <div class="mb-4 flex flex-wrap gap-4 text-sm">
+              <span class="flex items-center"><span class="w-4 h-4 bg-blue-100 border border-blue-300 mr-1"></span>土曜日</span>
+              <span class="flex items-center"><span class="w-4 h-4 bg-pink-100 border border-pink-300 mr-1"></span>日曜・祝日</span>
+            </div>
+
+            <!-- テーブルスクロールコンテナ -->
+            <div class="overflow-x-auto border border-gray-200 rounded-lg mb-6">
+              <table id="shiftEditTable" class="min-w-full text-sm">
+                <thead class="bg-gray-50">
+                  <!-- ヘッダーは動的に生成 -->
+                </thead>
+                <tbody>
+                  <!-- データは動的に生成 -->
+                </tbody>
+              </table>
+            </div>
+
+            <!-- 統計テーブル -->
+            <div class="mb-6">
+              <h3 class="text-lg font-semibold text-gray-800 mb-3">シフト集計</h3>
+              <div class="overflow-x-auto border border-gray-200 rounded-lg">
+                <table id="shiftStatsTable" class="min-w-full text-sm">
+                  <thead class="bg-gray-50">
+                    <!-- ヘッダーは動的に生成 -->
+                  </thead>
+                  <tbody>
+                    <!-- データは動的に生成 -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- 確定ボタン -->
+            <div class="flex justify-end space-x-4">
+              <button onclick="confirmAndRegisterCalendar()" class="bg-red-600 text-white px-8 py-3 rounded-lg hover:bg-red-700 transition font-semibold">
+                確定してカレンダー登録
+              </button>
+            </div>
+          </div>
+
+          <div id="shiftEditMessage" class="mt-4 hidden"></div>
+        </div>
+      </div>
+
     </main>
   </div>
 
@@ -346,6 +542,8 @@
     let currentSession = null;
     // 選択された休み希望: [{day: 数値, priority: 数値}]
     let selectedRequests = [];
+    // 月間公休数（優先順位の上限）
+    let maxHolidays = 9;
 
     // ページ読み込み時の初期化
     window.onload = function() {
@@ -369,12 +567,14 @@
         'login': 'loginView',
         'holiday-request': 'holidayRequestView',
         'staff-master': 'staffMasterView',
-        'shift-master': 'shiftMasterView'
+        'shift-master': 'shiftMasterView',
+        'shift-management': 'shiftManagementView',
+        'shift-edit': 'shiftEditView'
       };
 
       const viewId = viewIdMap[viewName] || viewName;
 
-      const views = ['loginView', 'holidayRequestView', 'staffMasterView', 'shiftMasterView'];
+      const views = ['loginView', 'holidayRequestView', 'staffMasterView', 'shiftMasterView', 'shiftManagementView', 'shiftEditView'];
       views.forEach(v => {
         document.getElementById(v).classList.add('hidden');
       });
@@ -400,6 +600,10 @@
           loadStaffList();
         } else if (viewId === 'shiftMasterView') {
           loadShiftMasterList();
+        } else if (viewId === 'shiftManagementView') {
+          initShiftManagementView();
+        } else if (viewId === 'shiftEditView') {
+          initShiftEditView();
         }
       }
     }
@@ -464,21 +668,50 @@
       if (!targetMonth) return;
 
       const [year, month] = targetMonth.split('-').map(Number);
+      const configKey = `MONTHLY_HOLIDAYS_${year}${String(month).padStart(2, '0')}`;
 
       showLoading();
 
+      // まず公休数を取得してから休み希望を読み込む
       google.script.run
-        .withSuccessHandler(function(result) {
-          hideLoading();
-          if (result.success) {
-            renderCalendar(year, month, result.data);
-          }
+        .withSuccessHandler(function(configResult) {
+          // 公休数をグローバル変数に保存
+          maxHolidays = configResult.value ? parseInt(configResult.value) : 9;
+          console.log(`公休数を取得: ${maxHolidays}日`);
+
+          // 休み希望を読み込む
+          google.script.run
+            .withSuccessHandler(function(result) {
+              hideLoading();
+              if (result.success) {
+                renderCalendar(year, month, result.data);
+              }
+            })
+            .withFailureHandler(function(error) {
+              hideLoading();
+              console.error(error);
+            })
+            .apiGetHolidayRequest(currentSession.name, year, month);
         })
         .withFailureHandler(function(error) {
-          hideLoading();
-          console.error(error);
+          console.error('公休数取得エラー:', error);
+          maxHolidays = 9; // デフォルト値
+
+          // エラーでも休み希望は読み込む
+          google.script.run
+            .withSuccessHandler(function(result) {
+              hideLoading();
+              if (result.success) {
+                renderCalendar(year, month, result.data);
+              }
+            })
+            .withFailureHandler(function(error) {
+              hideLoading();
+              console.error(error);
+            })
+            .apiGetHolidayRequest(currentSession.name, year, month);
         })
-        .apiGetHolidayRequest(currentSession.name, year, month);
+        .apiGetConfig(configKey);
 
       // ロック状態をチェック
       checkSubmissionLock(year, month);
@@ -607,8 +840,23 @@
         // 既に選択されている場合は削除
         selectedRequests.splice(requestIndex, 1);
       } else {
-        // 新規選択の場合はデフォルト優先順位1で追加
-        selectedRequests.push({ day: day, priority: 1 });
+        // 公休数を超えている場合は追加不可
+        if (selectedRequests.length >= maxHolidays) {
+          alert(`公休上限（${maxHolidays}日）に達しています。\n他の日付を削除してから追加してください。`);
+          return;
+        }
+
+        // 次に使用可能な優先順位を自動割り当て
+        const usedPriorities = selectedRequests.map(r => r.priority);
+        let nextPriority = 1;
+        for (let p = 1; p <= maxHolidays; p++) {
+          if (!usedPriorities.includes(p)) {
+            nextPriority = p;
+            break;
+          }
+        }
+
+        selectedRequests.push({ day: day, priority: nextPriority });
       }
 
       const targetMonth = document.getElementById('targetMonth').value;
@@ -640,19 +888,30 @@
 
       container.classList.remove('hidden');
 
-      // 日付でソート
-      const sortedRequests = [...selectedRequests].sort((a, b) => a.day - b.day);
+      // 使用中の優先順位を取得
+      const usedPriorities = selectedRequests.map(r => r.priority);
+
+      // 優先順位でソート（日付ではなく優先順位順に表示）
+      const sortedRequests = [...selectedRequests].sort((a, b) => a.priority - b.priority);
 
       let html = '';
       sortedRequests.forEach((request, index) => {
+        // 公休数分の選択肢を生成（重複禁止）
+        const options = [];
+        for (let p = 1; p <= maxHolidays; p++) {
+          const isUsed = usedPriorities.includes(p) && p !== request.priority;
+          const selected = p === request.priority ? 'selected' : '';
+          const disabled = isUsed ? 'disabled' : '';
+          const style = isUsed ? 'color: #ccc;' : '';
+          options.push(`<option value="${p}" ${selected} ${disabled} style="${style}">第${p}希望${isUsed ? '（使用中）' : ''}</option>`);
+        }
+
         html += `
           <tr class="border-b">
             <td class="py-2 px-2">${month}月${request.day}日</td>
             <td class="py-2 px-2">
               <select onchange="updatePriority(${request.day}, this.value)" class="border border-gray-300 rounded px-2 py-1">
-                ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(p =>
-                  `<option value="${p}" ${p === request.priority ? 'selected' : ''}>第${p}希望</option>`
-                ).join('')}
+                ${options.join('')}
               </select>
             </td>
             <td class="py-2 px-2 text-center">
@@ -1042,6 +1301,498 @@
           console.error(error);
         })
         .apiDeleteShiftMaster(shiftId);
+    }
+
+    // ============================================
+    // シフト管理画面用関数
+    // ============================================
+
+    // シフト管理画面の初期化
+    function initShiftManagementView() {
+      const now = new Date();
+      const targetMonth = document.getElementById('shiftMgmtTargetMonth');
+      targetMonth.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      loadShiftManagementStatus();
+    }
+
+    // シフト管理画面の状態を読み込み
+    function loadShiftManagementStatus() {
+      const targetMonth = document.getElementById('shiftMgmtTargetMonth').value;
+      if (!targetMonth) return;
+
+      const [year, month] = targetMonth.split('-').map(Number);
+      const holidaysKey = `MONTHLY_HOLIDAYS_${year}${String(month).padStart(2, '0')}`;
+      const lockKey = `SUBMISSION_LOCK_${year}${String(month).padStart(2, '0')}`;
+
+      // 公休日数を取得
+      google.script.run
+        .withSuccessHandler(function(result) {
+          const holidays = result.value ? parseInt(result.value) : 9;
+          document.getElementById('monthlyHolidaysInput').value = holidays;
+        })
+        .apiGetConfig(holidaysKey);
+
+      // 締切状態を取得
+      google.script.run
+        .withSuccessHandler(function(result) {
+          const isLocked = result.value === 'TRUE' || result.value === true;
+          updateLockStatusDisplay(isLocked);
+        })
+        .apiGetConfig(lockKey);
+    }
+
+    // 締切状態の表示を更新
+    function updateLockStatusDisplay(isLocked) {
+      const statusDiv = document.getElementById('submissionLockStatus');
+      const lockBtn = document.getElementById('lockButton');
+      const unlockBtn = document.getElementById('unlockButton');
+
+      if (isLocked) {
+        statusDiv.innerHTML = '<span class="text-red-600 font-semibold">現在: 締切済み（提出不可）</span>';
+        lockBtn.classList.add('opacity-50');
+        unlockBtn.classList.remove('opacity-50');
+      } else {
+        statusDiv.innerHTML = '<span class="text-green-600 font-semibold">現在: 受付中（提出可能）</span>';
+        lockBtn.classList.remove('opacity-50');
+        unlockBtn.classList.add('opacity-50');
+      }
+    }
+
+    // 公休日数を保存
+    function saveMonthlyHolidays() {
+      const targetMonth = document.getElementById('shiftMgmtTargetMonth').value;
+      if (!targetMonth) {
+        alert('対象月を選択してください');
+        return;
+      }
+
+      const [year, month] = targetMonth.split('-').map(Number);
+      const holidays = document.getElementById('monthlyHolidaysInput').value;
+
+      if (!holidays || holidays < 1 || holidays > 31) {
+        alert('公休日数は1〜31の範囲で入力してください');
+        return;
+      }
+
+      const configKey = `MONTHLY_HOLIDAYS_${year}${String(month).padStart(2, '0')}`;
+
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          if (result.success) {
+            alert(`${year}年${month}月の公休日数を${holidays}日に設定しました`);
+          } else {
+            alert('エラー: ' + result.message);
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          alert('エラーが発生しました');
+          console.error(error);
+        })
+        .apiSetConfig(configKey, holidays);
+    }
+
+    // 提出締切の切り替え
+    function toggleSubmissionLock(lock) {
+      const targetMonth = document.getElementById('shiftMgmtTargetMonth').value;
+      if (!targetMonth) {
+        alert('対象月を選択してください');
+        return;
+      }
+
+      const [year, month] = targetMonth.split('-').map(Number);
+      const action = lock ? '締切（ロック）' : '受付再開（解除）';
+
+      if (!confirm(`${year}年${month}月の休み希望提出を${action}しますか？`)) {
+        return;
+      }
+
+      const configKey = `SUBMISSION_LOCK_${year}${String(month).padStart(2, '0')}`;
+      const value = lock ? 'TRUE' : 'FALSE';
+
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          if (result.success) {
+            updateLockStatusDisplay(lock);
+            alert(`${year}年${month}月の提出を${action}しました`);
+          } else {
+            alert('エラー: ' + result.message);
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          alert('エラーが発生しました');
+          console.error(error);
+        })
+        .apiSetConfig(configKey, value);
+    }
+
+    // シフト作成用3種CSV一括出力
+    function exportAllCSVForShiftCreation() {
+      const targetMonth = document.getElementById('shiftMgmtTargetMonth').value;
+      if (!targetMonth) {
+        alert('対象月を選択してください');
+        return;
+      }
+
+      const [year, month] = targetMonth.split('-').map(Number);
+
+      if (!confirm(`${year}年${month}月のシフト作成用CSVを一括出力しますか？\n\n出力ファイル:\n・T_休み希望_${year}${String(month).padStart(2, '0')}.csv\n・M_職員_${year}${String(month).padStart(2, '0')}.csv\n・M_設定_${year}${String(month).padStart(2, '0')}.csv`)) {
+        return;
+      }
+
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          const resultDiv = document.getElementById('csvExportResult');
+
+          if (result.success) {
+            let fileList = result.files.map(f => `・${f}`).join('<br>');
+            resultDiv.innerHTML = `<span class="text-green-600">✅ ${result.message}</span><br>
+              <span class="text-gray-600">出力ファイル:<br>${fileList}</span>`;
+          } else {
+            resultDiv.innerHTML = `<span class="text-red-600">❌ ${result.message}</span>`;
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          document.getElementById('csvExportResult').innerHTML =
+            `<span class="text-red-600">❌ エラーが発生しました</span>`;
+          console.error(error);
+        })
+        .apiExportAllCSVForShiftCreation(year, month);
+    }
+
+    // シフト結果CSV取込（対象月で自動検索）
+    function importShiftCSVByMonth() {
+      const targetMonth = document.getElementById('shiftMgmtTargetMonth').value;
+      if (!targetMonth) {
+        alert('対象月を選択してください');
+        return;
+      }
+
+      const [year, month] = targetMonth.split('-').map(Number);
+      const ym = `${year}${String(month).padStart(2, '0')}`;
+
+      if (!confirm(`${year}年${month}月のシフト結果を取り込みますか？\n\n対象ファイル: シフト結果_${ym}.csv\n（既存の確定シフトは上書きされます）`)) {
+        return;
+      }
+
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          const resultDiv = document.getElementById('csvImportResult');
+
+          if (result.success) {
+            resultDiv.innerHTML = `<span class="text-green-600">✅ ${result.message}</span>`;
+          } else {
+            resultDiv.innerHTML = `<span class="text-red-600">❌ ${result.message}</span>`;
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          document.getElementById('csvImportResult').innerHTML =
+            `<span class="text-red-600">❌ エラーが発生しました</span>`;
+          console.error(error);
+        })
+        .apiImportShiftResultByMonth(year, month);
+    }
+
+    // カレンダー登録
+    function registerShiftToCalendar() {
+      const targetMonth = document.getElementById('shiftMgmtTargetMonth').value;
+      if (!targetMonth) {
+        alert('対象月を選択してください');
+        return;
+      }
+
+      const [year, month] = targetMonth.split('-').map(Number);
+
+      if (!confirm(`${year}年${month}月のシフトをGoogleカレンダーに登録しますか？\n\n注意: 既存のカレンダー予定は上書きされる場合があります。`)) {
+        return;
+      }
+
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          const resultDiv = document.getElementById('calendarRegisterResult');
+
+          if (result.success) {
+            resultDiv.innerHTML = `<span class="text-green-600">✅ ${result.message}</span>`;
+          } else {
+            resultDiv.innerHTML = `<span class="text-red-600">❌ ${result.message}</span>`;
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          document.getElementById('calendarRegisterResult').innerHTML =
+            `<span class="text-red-600">❌ エラーが発生しました</span>`;
+          console.error(error);
+        })
+        .apiRegisterShiftToCalendar(year, month);
+    }
+
+    // ============================================
+    // シフト修正画面用関数
+    // ============================================
+
+    // グローバル変数（シフト修正用）
+    let shiftEditData = null;
+    let shiftMasterList = [];
+
+    // シフト修正画面の初期化
+    function initShiftEditView() {
+      const now = new Date();
+      const targetMonth = document.getElementById('shiftEditTargetMonth');
+      targetMonth.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+      // グループ一覧を取得
+      loadShiftEditGroups();
+
+      // シフトマスタを取得
+      loadShiftMasterForEdit();
+    }
+
+    // グループ一覧を取得
+    function loadShiftEditGroups() {
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            const select = document.getElementById('shiftEditGroup');
+            select.innerHTML = '<option value="">-- 選択 --</option>';
+            result.groups.forEach(g => {
+              select.innerHTML += `<option value="${g}">グループ ${g}</option>`;
+            });
+          }
+        })
+        .withFailureHandler(function(error) {
+          console.error('グループ一覧取得エラー:', error);
+        })
+        .apiGetGroups();
+    }
+
+    // シフトマスタを取得
+    function loadShiftMasterForEdit() {
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            shiftMasterList = result.shifts;
+          }
+        })
+        .withFailureHandler(function(error) {
+          console.error('シフトマスタ取得エラー:', error);
+        })
+        .apiGetShiftMaster();
+    }
+
+    // シフトデータを読み込み
+    function loadShiftEditData() {
+      const targetMonth = document.getElementById('shiftEditTargetMonth').value;
+      const group = document.getElementById('shiftEditGroup').value;
+
+      if (!targetMonth) {
+        alert('対象月を選択してください');
+        return;
+      }
+      if (!group) {
+        alert('グループを選択してください');
+        return;
+      }
+
+      // シフトマスタが読み込まれていない場合は待機
+      if (shiftMasterList.length === 0) {
+        alert('シフトマスタを読み込み中です。少し待ってから再度お試しください。');
+        loadShiftMasterForEdit();
+        return;
+      }
+
+      const [year, month] = targetMonth.split('-').map(Number);
+
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          console.log('apiGetShiftDataByGroup result:', result);
+          if (result && result.success) {
+            shiftEditData = result;
+            renderShiftEditTable(result);
+            renderShiftStatsTable(result);
+            document.getElementById('shiftEditTableContainer').classList.remove('hidden');
+          } else if (result) {
+            alert('エラー: ' + result.message);
+          } else {
+            alert('データの取得に失敗しました。再度お試しください。');
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          console.error('apiGetShiftDataByGroup error:', error);
+          alert('エラーが発生しました: ' + (error.message || error));
+        })
+        .apiGetShiftDataByGroup(year, month, parseInt(group));
+    }
+
+    // シフト編集テーブルを描画
+    function renderShiftEditTable(data) {
+      const table = document.getElementById('shiftEditTable');
+      const thead = table.querySelector('thead');
+      const tbody = table.querySelector('tbody');
+
+      // ヘッダー生成
+      let headerHtml = '<tr><th class="px-2 py-2 text-left sticky left-0 bg-gray-50 border-b border-r">氏名</th>';
+      data.dateInfo.forEach(d => {
+        let bgClass = '';
+        if (d.isSunday || d.isHoliday) {
+          bgClass = 'bg-pink-100';
+        } else if (d.isSaturday) {
+          bgClass = 'bg-blue-100';
+        }
+        const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+        headerHtml += `<th class="px-1 py-2 text-center border-b ${bgClass}" style="min-width: 70px;">
+          <div class="text-xs">${d.day}</div>
+          <div class="text-xs text-gray-500">${dayNames[d.dayOfWeek]}</div>
+        </th>`;
+      });
+      headerHtml += '</tr>';
+      thead.innerHTML = headerHtml;
+
+      // ボディ生成
+      let bodyHtml = '';
+      data.staffShifts.forEach(staff => {
+        bodyHtml += `<tr><td class="px-2 py-2 whitespace-nowrap sticky left-0 bg-white border-r font-medium">${staff.name}</td>`;
+        data.dateInfo.forEach(d => {
+          const shift = staff.shifts[d.day];
+          let bgClass = '';
+          if (d.isSunday || d.isHoliday) {
+            bgClass = 'bg-pink-50';
+          } else if (d.isSaturday) {
+            bgClass = 'bg-blue-50';
+          }
+
+          // シフト選択プルダウン生成
+          let options = '<option value="休み">休み</option>';
+          shiftMasterList.forEach(sm => {
+            if (sm['シフト名'] !== '休み') {
+              const selected = shift.shiftName === sm['シフト名'] ? 'selected' : '';
+              options += `<option value="${sm['シフト名']}" ${selected}>${sm['シフト名']}</option>`;
+            }
+          });
+          // 休みが選択されている場合
+          if (shift.shiftName === '休み' || !shift.shiftName) {
+            options = options.replace('value="休み"', 'value="休み" selected');
+          }
+
+          bodyHtml += `<td class="px-1 py-1 ${bgClass}">
+            <select onchange="updateShiftCell('${staff.name}', ${data.year}, ${data.month}, ${d.day}, this.value)"
+              class="w-full px-1 py-1 text-xs border border-gray-300 rounded">
+              ${options}
+            </select>
+          </td>`;
+        });
+        bodyHtml += '</tr>';
+      });
+      tbody.innerHTML = bodyHtml;
+    }
+
+    // シフトセルを更新
+    function updateShiftCell(staffName, year, month, day, shiftName) {
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          if (result.success) {
+            // データを再読み込みして統計を更新
+            loadShiftEditData();
+          } else {
+            alert('エラー: ' + result.message);
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          alert('エラーが発生しました');
+          console.error(error);
+        })
+        .apiUpdateShift(staffName, year, month, day, shiftName);
+    }
+
+    // 統計テーブルを描画
+    function renderShiftStatsTable(data) {
+      const table = document.getElementById('shiftStatsTable');
+      const thead = table.querySelector('thead');
+      const tbody = table.querySelector('tbody');
+
+      // 全シフト種類を取得
+      const allShiftNames = new Set();
+      data.statistics.forEach(stat => {
+        Object.keys(stat.shiftCounts).forEach(name => allShiftNames.add(name));
+      });
+      const shiftNames = Array.from(allShiftNames).sort();
+
+      // ヘッダー生成
+      let headerHtml = '<tr>';
+      headerHtml += '<th class="px-3 py-2 text-left border-b">氏名</th>';
+      headerHtml += '<th class="px-3 py-2 text-center border-b">勤務日数</th>';
+      headerHtml += '<th class="px-3 py-2 text-center border-b">休日数</th>';
+      shiftNames.forEach(name => {
+        headerHtml += `<th class="px-3 py-2 text-center border-b">${name}</th>`;
+      });
+      headerHtml += '</tr>';
+      thead.innerHTML = headerHtml;
+
+      // ボディ生成
+      let bodyHtml = '';
+      data.statistics.forEach(stat => {
+        bodyHtml += '<tr>';
+        bodyHtml += `<td class="px-3 py-2 border-b font-medium">${stat.name}</td>`;
+        bodyHtml += `<td class="px-3 py-2 border-b text-center">${stat.workDays}</td>`;
+        bodyHtml += `<td class="px-3 py-2 border-b text-center">${stat.restDays}</td>`;
+        shiftNames.forEach(name => {
+          const count = stat.shiftCounts[name] || 0;
+          bodyHtml += `<td class="px-3 py-2 border-b text-center">${count}</td>`;
+        });
+        bodyHtml += '</tr>';
+      });
+      tbody.innerHTML = bodyHtml;
+    }
+
+    // 確定してカレンダー登録
+    function confirmAndRegisterCalendar() {
+      if (!shiftEditData) {
+        alert('先にシフトデータを表示してください');
+        return;
+      }
+
+      const { year, month, group } = shiftEditData;
+
+      if (!confirm(`グループ${group}の${year}年${month}月シフトを確定してカレンダーに登録しますか？\n\n確定すると:\n・登録日時が記録されます\n・Googleカレンダーに予定が登録されます`)) {
+        return;
+      }
+
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          if (result.success) {
+            alert(`✅ ${result.message}`);
+            // データを再読み込み
+            loadShiftEditData();
+          } else {
+            alert('❌ エラー: ' + result.message);
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          alert('❌ エラーが発生しました');
+          console.error(error);
+        })
+        .apiConfirmShiftsAndRegisterCalendar(year, month, group);
     }
   </script>
 

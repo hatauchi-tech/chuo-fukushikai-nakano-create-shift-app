@@ -74,6 +74,12 @@ function getStaffByLoginId(loginId) {
   return allStaff.find(staff => staff['ログインID'] === loginId);
 }
 
+// 氏名で職員を検索
+function getStaffByName(name) {
+  const allStaff = getAllStaff();
+  return allStaff.find(staff => staff['氏名'] === name);
+}
+
 // グループ別に職員を取得
 function getStaffByGroup(groupNumber) {
   return getActiveStaff().filter(staff => staff['グループ'] == groupNumber);
@@ -560,6 +566,136 @@ function updateCalendarEventId(shiftId, eventId) {
     return false;
   } catch (e) {
     console.error('イベントID更新エラー:', e);
+    throw e;
+  }
+}
+
+// 確定シフトを月別に取得
+function getConfirmedShiftsByMonth(year, month) {
+  try {
+    const sheet = getOrCreateSheet(SHEET_NAMES.CONFIRMED_SHIFT);
+    const data = sheet.getDataRange().getValues();
+
+    if (data.length <= 1) return [];
+
+    const headers = data[0];
+    const shifts = [];
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const startDate = row[4];  // 勤務開始日（インデックス4）
+
+      if (startDate) {
+        const date = new Date(startDate);
+        if (date.getFullYear() == year && date.getMonth() + 1 == month) {
+          const shift = {};
+          headers.forEach((header, index) => {
+            const value = row[index];
+            if (value instanceof Date) {
+              shift[header] = value;
+            } else if (value === null || value === undefined) {
+              shift[header] = '';
+            } else {
+              shift[header] = value;
+            }
+          });
+          shifts.push(shift);
+        }
+      }
+    }
+
+    console.log(`確定シフト取得: ${year}年${month}月 (${shifts.length}件)`);
+    return shifts;
+  } catch (e) {
+    console.error('確定シフト取得エラー:', e);
+    return [];
+  }
+}
+
+// 確定シフトを単一削除
+function deleteConfirmedShift(shiftId) {
+  try {
+    const sheet = getOrCreateSheet(SHEET_NAMES.CONFIRMED_SHIFT);
+    const data = sheet.getDataRange().getValues();
+
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === shiftId) {
+        sheet.deleteRow(i + 1);
+        console.log(`確定シフト削除: ${shiftId}`);
+        return true;
+      }
+    }
+
+    console.log(`確定シフト削除失敗: ${shiftId} が見つかりません`);
+    return false;
+  } catch (e) {
+    console.error('確定シフト削除エラー:', e);
+    throw e;
+  }
+}
+
+// 確定シフトを更新
+function updateConfirmedShift(shiftId, shiftData) {
+  try {
+    const sheet = getOrCreateSheet(SHEET_NAMES.CONFIRMED_SHIFT);
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === shiftId) {
+        // 既存データを保持しながら更新
+        const rowData = headers.map((header, index) => {
+          if (header === '確定シフトID') {
+            return shiftId;  // IDは変更しない
+          } else if (header === '登録日時' || header === 'カレンダーイベントID') {
+            return data[i][index];  // これらは変更しない
+          } else if (shiftData[header] !== undefined) {
+            return shiftData[header];
+          } else {
+            return data[i][index];
+          }
+        });
+
+        sheet.getRange(i + 1, 1, 1, rowData.length).setValues([rowData]);
+        console.log(`確定シフト更新: ${shiftId}`);
+        return true;
+      }
+    }
+
+    console.log(`確定シフト更新失敗: ${shiftId} が見つかりません`);
+    return false;
+  } catch (e) {
+    console.error('確定シフト更新エラー:', e);
+    throw e;
+  }
+}
+
+// 確定シフトの特定フィールドを更新
+function updateConfirmedShiftFields(shiftId, fields) {
+  try {
+    const sheet = getOrCreateSheet(SHEET_NAMES.CONFIRMED_SHIFT);
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === shiftId) {
+        // 指定されたフィールドのみ更新
+        Object.keys(fields).forEach(fieldName => {
+          const colIndex = headers.indexOf(fieldName);
+          if (colIndex >= 0) {
+            sheet.getRange(i + 1, colIndex + 1).setValue(fields[fieldName]);
+          }
+        });
+
+        console.log(`確定シフトフィールド更新: ${shiftId} (${Object.keys(fields).join(', ')})`);
+        return true;
+      }
+    }
+
+    console.log(`確定シフトフィールド更新失敗: ${shiftId} が見つかりません`);
+    return false;
+  } catch (e) {
+    console.error('確定シフトフィールド更新エラー:', e);
     throw e;
   }
 }

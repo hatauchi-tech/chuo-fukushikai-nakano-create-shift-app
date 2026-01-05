@@ -65,9 +65,9 @@ function authenticateUser(loginId, password) {
 }
 
 // 管理者ロールかどうかを判定
+// 役職列は「管理者」または「一般」を入力
 function isAdminRole(role) {
-  const adminRoles = ['管理者', '施設長', '主任', 'リーダー'];
-  return adminRoles.includes(role);
+  return role === '管理者';
 }
 
 // セッション情報を取得（UserPropertiesから）

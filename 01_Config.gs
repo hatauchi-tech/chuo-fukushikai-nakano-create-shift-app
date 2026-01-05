@@ -3,14 +3,21 @@
  * スクリプトプロパティとスプレッドシート設定を管理
  */
 
-// スプレッドシートを取得（スプレッドシートバインド型）
+// スプレッドシートを取得（スタンドアローン型）
 function getSpreadsheet() {
   try {
-    // このGASはスプレッドシートにバインドされているため、getActiveSpreadsheet()を使用
-    return SpreadsheetApp.getActiveSpreadsheet();
+    // スクリプトプロパティからSPREADSHEET_IDを取得
+    const props = PropertiesService.getScriptProperties();
+    const spreadsheetId = props.getProperty('SPREADSHEET_ID');
+
+    if (!spreadsheetId) {
+      throw new Error('SPREADSHEET_IDがスクリプトプロパティに設定されていません');
+    }
+
+    return SpreadsheetApp.openById(spreadsheetId);
   } catch (e) {
     console.error('スプレッドシート取得エラー:', e);
-    throw new Error('このスクリプトはスプレッドシートにバインドされている必要があります');
+    throw new Error('スプレッドシートを開けません: ' + e.message);
   }
 }
 
@@ -91,64 +98,46 @@ function getAdminEmail() {
 // ============================================
 
 /**
- * DriveフォルダIDを設定
- * 初回セットアップ時に実行
+ * 現在のスクリプトプロパティを確認（デバッグ用）
+ * GASエディタから実行して、ログで確認できます
  */
-function setupDriveFolders() {
-  const ui = SpreadsheetApp.getUi();
-
-  const inputFolderResponse = ui.prompt(
-    'DriveフォルダID設定 (1/4)',
-    'inputフォルダのIDを入力してください:\n（T_休み希望.csv格納用）',
-    ui.ButtonSet.OK_CANCEL
-  );
-
-  if (inputFolderResponse.getSelectedButton() !== ui.Button.OK) return;
-  const inputFolderId = inputFolderResponse.getResponseText();
-
-  const outputFolderResponse = ui.prompt(
-    'DriveフォルダID設定 (2/4)',
-    'outputフォルダのIDを入力してください:\n（シフト結果.csv格納用）',
-    ui.ButtonSet.OK_CANCEL
-  );
-
-  if (outputFolderResponse.getSelectedButton() !== ui.Button.OK) return;
-  const outputFolderId = outputFolderResponse.getResponseText();
-
-  const archiveFolderResponse = ui.prompt(
-    'DriveフォルダID設定 (3/4)',
-    'archiveフォルダのIDを入力してください:\n（過去データ保管用）',
-    ui.ButtonSet.OK_CANCEL
-  );
-
-  if (archiveFolderResponse.getSelectedButton() !== ui.Button.OK) return;
-  const archiveFolderId = archiveFolderResponse.getResponseText();
-
-  const tokenResponse = ui.prompt(
-    'Webhookトークン設定 (4/4)',
-    'Webhook認証用のトークンを入力してください:\n（任意の文字列、Colab側と共有）',
-    ui.ButtonSet.OK_CANCEL
-  );
-
-  if (tokenResponse.getSelectedButton() !== ui.Button.OK) return;
-  const webhookToken = tokenResponse.getResponseText();
-
-  // M_設定シートに保存
-  setConfig('DRIVE_FOLDER_INPUT', inputFolderId);
-  setConfig('DRIVE_FOLDER_OUTPUT', outputFolderId);
-  setConfig('DRIVE_FOLDER_ARCHIVE', archiveFolderId);
-
-  // スクリプトプロパティにWebhookトークンを保存
+function checkScriptProperties() {
   const props = PropertiesService.getScriptProperties();
-  props.setProperty('WEBHOOK_TOKEN', webhookToken);
+  const allProps = props.getProperties();
 
-  ui.alert('✅ Drive設定完了',
-    `inputフォルダ: ${inputFolderId}\n` +
-    `outputフォルダ: ${outputFolderId}\n` +
-    `archiveフォルダ: ${archiveFolderId}\n` +
-    `Webhookトークン: ${webhookToken.substring(0, 10)}...`,
-    ui.ButtonSet.OK
-  );
+  console.log('=== スクリプトプロパティ一覧 ===');
+  for (const key in allProps) {
+    console.log(`${key}: ${allProps[key]}`);
+  }
 
-  console.log('Drive設定完了');
+  return allProps;
+}
+
+/**
+ * スクリプトプロパティの設定状態を検証
+ */
+function validateScriptProperties() {
+  const props = PropertiesService.getScriptProperties();
+  const requiredKeys = [
+    'SPREADSHEET_ID',
+    'DRIVE_FOLDER_INPUT',
+    'DRIVE_FOLDER_OUTPUT',
+    'DRIVE_FOLDER_ARCHIVE',
+    'WEBHOOK_TOKEN'
+  ];
+
+  const missing = [];
+  requiredKeys.forEach(key => {
+    if (!props.getProperty(key)) {
+      missing.push(key);
+    }
+  });
+
+  if (missing.length > 0) {
+    console.error('不足しているスクリプトプロパティ:', missing.join(', '));
+    return { valid: false, missing: missing };
+  }
+
+  console.log('✅ すべてのスクリプトプロパティが設定されています');
+  return { valid: true, missing: [] };
 }
