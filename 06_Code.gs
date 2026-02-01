@@ -540,6 +540,21 @@ function apiImportShiftResultFromCSV(fileId) {
 }
 
 /**
+ * Google Colab URL取得API
+ * スクリプトプロパティからGOOGLE_COLAB_URLを取得
+ */
+function apiGetColabUrl() {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const url = props.getProperty('GOOGLE_COLAB_URL');
+    return { success: true, url: url || '' };
+  } catch (e) {
+    console.error('Colab URL取得エラー:', e);
+    return { success: false, url: '' };
+  }
+}
+
+/**
  * カレンダー登録API
  */
 function apiRegisterShiftToCalendar(year, month) {
@@ -831,6 +846,7 @@ function getNthWeekday(year, month, dayOfWeek, n) {
 
 /**
  * シフト統計情報を計算
+ * 休日数は夜勤明け後の必須休み（夜勤翌日・翌々日）を除外してカウント
  */
 function calculateShiftStatistics(staffShifts, daysInMonth) {
   return staffShifts.map(staff => {
@@ -838,6 +854,18 @@ function calculateShiftStatistics(staffShifts, daysInMonth) {
     let restDays = 0;
     const shiftCounts = {};
 
+    // 1パス目: 夜勤明け必須休みの日を特定
+    const mandatoryRestDays = {};
+    for (let d = 1; d <= daysInMonth; d++) {
+      const shift = staff.shifts[d];
+      const shiftName = shift.shiftName || '休み';
+      if (shiftName === '夜勤') {
+        if (d + 1 <= daysInMonth) mandatoryRestDays[d + 1] = true;
+        if (d + 2 <= daysInMonth) mandatoryRestDays[d + 2] = true;
+      }
+    }
+
+    // 2パス目: 集計
     for (let d = 1; d <= daysInMonth; d++) {
       const shift = staff.shifts[d];
       const shiftName = shift.shiftName || '休み';
@@ -848,7 +876,10 @@ function calculateShiftStatistics(staffShifts, daysInMonth) {
       shiftCounts[shiftName]++;
 
       if (shiftName === '休み') {
-        restDays++;
+        // 夜勤明け必須休みでない場合のみ休日数（公休）にカウント
+        if (!mandatoryRestDays[d]) {
+          restDays++;
+        }
       } else {
         workDays++;
         // 夜勤は2日分換算
@@ -935,6 +966,47 @@ function apiUpdateShift(staffName, year, month, day, shiftName) {
 
   } catch (e) {
     console.error('シフト更新エラー:', e);
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * シフトを確定（カレンダー登録なし）
+ * @param {number} year - 年
+ * @param {number} month - 月
+ * @param {number} group - グループ（省略時は全グループ）
+ */
+function apiConfirmShifts(year, month, group) {
+  try {
+    console.log(`シフト確定（カレンダーなし）: ${year}年${month}月 グループ${group || '全て'}`);
+
+    const now = new Date();
+    const registrationDate = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy/MM/dd HH:mm:ss');
+
+    const shifts = getConfirmedShiftsByMonth(year, month);
+    const targetShifts = group
+      ? shifts.filter(s => String(s['グループ']) === String(group))
+      : shifts;
+
+    let confirmedCount = 0;
+
+    for (const shift of targetShifts) {
+      if (shift['シフト名'] === '休み' || !shift['シフト名']) continue;
+
+      updateConfirmedShiftFields(shift['確定シフトID'], {
+        '登録日時': registrationDate
+      });
+      confirmedCount++;
+    }
+
+    return {
+      success: true,
+      count: confirmedCount,
+      message: `${confirmedCount}件のシフトを確定しました`
+    };
+
+  } catch (e) {
+    console.error('シフト確定エラー:', e);
     return { success: false, message: e.message };
   }
 }

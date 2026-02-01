@@ -418,13 +418,20 @@
                 </div>
               </div>
 
-              <!-- ステップ2: Python実行（説明のみ） -->
+              <!-- ステップ2: Python実行 -->
               <div class="flex items-start space-x-4 p-4 bg-white rounded-lg border border-gray-200">
                 <div class="flex-shrink-0 w-10 h-10 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold">2</div>
                 <div class="flex-grow">
                   <h4 class="font-semibold text-gray-800">シフト最適化実行（Google Colab）</h4>
-                  <p class="text-sm text-gray-600">Google Colabでシフト最適化Pythonを実行してください。</p>
-                  <p class="text-sm text-gray-500 mt-1">→ 結果CSVがGoogleドライブのoutputフォルダに保存されます。</p>
+                  <p class="text-sm text-gray-600 mb-3">Google Colabでシフト最適化Pythonを実行してください。</p>
+                  <p class="text-sm text-gray-500 mb-3">→ 結果CSVがGoogleドライブのoutputフォルダに保存されます。</p>
+                  <div id="colabLinkContainer">
+                    <a id="colabLinkButton" href="#" target="_blank" rel="noopener noreferrer"
+                      class="hidden inline-block bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">
+                      Google Colabを開く
+                    </a>
+                    <p id="colabLinkNotSet" class="hidden text-xs text-gray-400">※ スクリプトプロパティ「GOOGLE_COLAB_URL」にColabのURLを設定すると、ここにリンクボタンが表示されます。</p>
+                  </div>
                 </div>
               </div>
 
@@ -524,6 +531,9 @@
 
             <!-- 確定ボタン -->
             <div class="flex justify-end space-x-4">
+              <button onclick="confirmOnly()" class="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 transition font-semibold">
+                確定
+              </button>
               <button onclick="confirmAndRegisterCalendar()" class="bg-red-600 text-white px-8 py-3 rounded-lg hover:bg-red-700 transition font-semibold">
                 確定してカレンダー登録
               </button>
@@ -1313,6 +1323,29 @@
       const targetMonth = document.getElementById('shiftMgmtTargetMonth');
       targetMonth.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       loadShiftManagementStatus();
+      loadColabUrl();
+    }
+
+    // Google Colab URLを取得して表示
+    function loadColabUrl() {
+      google.script.run
+        .withSuccessHandler(function(result) {
+          const btn = document.getElementById('colabLinkButton');
+          const notSet = document.getElementById('colabLinkNotSet');
+          if (result.success && result.url) {
+            btn.href = result.url;
+            btn.classList.remove('hidden');
+            notSet.classList.add('hidden');
+          } else {
+            btn.classList.add('hidden');
+            notSet.classList.remove('hidden');
+          }
+        })
+        .withFailureHandler(function(error) {
+          console.error('Colab URL取得エラー:', error);
+          document.getElementById('colabLinkNotSet').classList.remove('hidden');
+        })
+        .apiGetColabUrl();
     }
 
     // シフト管理画面の状態を読み込み
@@ -1701,25 +1734,89 @@
       tbody.innerHTML = bodyHtml;
     }
 
-    // シフトセルを更新
+    // シフトセルを更新（ローカル即時反映 + バックグラウンド保存）
     function updateShiftCell(staffName, year, month, day, shiftName) {
-      showLoading();
+      // ローカルデータを即座に更新
+      if (shiftEditData) {
+        const staff = shiftEditData.staffShifts.find(s => s.name === staffName);
+        if (staff && staff.shifts[day]) {
+          staff.shifts[day].shiftName = shiftName;
+        }
+        // 統計をクライアントサイドで再計算して再描画
+        calculateShiftStatisticsLocal();
+      }
+
+      // バックグラウンドでサーバーに保存
       google.script.run
         .withSuccessHandler(function(result) {
-          hideLoading();
-          if (result.success) {
-            // データを再読み込みして統計を更新
+          if (!result.success) {
+            alert('保存エラー: ' + result.message);
+            // エラー時はサーバーから再読み込み
             loadShiftEditData();
-          } else {
-            alert('エラー: ' + result.message);
           }
         })
         .withFailureHandler(function(error) {
-          hideLoading();
-          alert('エラーが発生しました');
+          alert('保存エラーが発生しました');
           console.error(error);
+          // エラー時はサーバーから再読み込み
+          loadShiftEditData();
         })
         .apiUpdateShift(staffName, year, month, day, shiftName);
+    }
+
+    // クライアントサイドで統計を再計算して再描画
+    function calculateShiftStatisticsLocal() {
+      if (!shiftEditData) return;
+
+      const daysInMonth = shiftEditData.dateInfo.length;
+
+      shiftEditData.statistics = shiftEditData.staffShifts.map(function(staff) {
+        var workDays = 0;
+        var restDays = 0;
+        var shiftCounts = {};
+
+        // 1パス目: 夜勤明け必須休みの日を特定
+        var mandatoryRestDays = {};
+        for (var d = 1; d <= daysInMonth; d++) {
+          var shift = staff.shifts[d];
+          var name = shift ? (shift.shiftName || '休み') : '休み';
+          if (name === '夜勤') {
+            if (d + 1 <= daysInMonth) mandatoryRestDays[d + 1] = true;
+            if (d + 2 <= daysInMonth) mandatoryRestDays[d + 2] = true;
+          }
+        }
+
+        // 2パス目: 集計
+        for (var d = 1; d <= daysInMonth; d++) {
+          var shift = staff.shifts[d];
+          var name = shift ? (shift.shiftName || '休み') : '休み';
+
+          if (!shiftCounts[name]) shiftCounts[name] = 0;
+          shiftCounts[name]++;
+
+          if (name === '休み') {
+            // 夜勤明け必須休みでない場合のみ休日数にカウント
+            if (!mandatoryRestDays[d]) {
+              restDays++;
+            }
+          } else {
+            workDays++;
+            if (name === '夜勤') {
+              workDays++;
+            }
+          }
+        }
+
+        return {
+          name: staff.name,
+          workDays: workDays,
+          restDays: restDays,
+          shiftCounts: shiftCounts
+        };
+      });
+
+      // 統計テーブルのみ再描画
+      renderShiftStatsTable(shiftEditData);
     }
 
     // 統計テーブルを描画
@@ -1760,6 +1857,38 @@
         bodyHtml += '</tr>';
       });
       tbody.innerHTML = bodyHtml;
+    }
+
+    // 確定のみ（カレンダー登録なし）
+    function confirmOnly() {
+      if (!shiftEditData) {
+        alert('先にシフトデータを表示してください');
+        return;
+      }
+
+      const { year, month, group } = shiftEditData;
+
+      if (!confirm(`グループ${group}の${year}年${month}月シフトを確定しますか？\n\n確定すると:\n・登録日時が記録されます`)) {
+        return;
+      }
+
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          if (result.success) {
+            alert(`${result.message}`);
+            loadShiftEditData();
+          } else {
+            alert('エラー: ' + result.message);
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          alert('エラーが発生しました');
+          console.error(error);
+        })
+        .apiConfirmShifts(year, month, group);
     }
 
     // 確定してカレンダー登録
