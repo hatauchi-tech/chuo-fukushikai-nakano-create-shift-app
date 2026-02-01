@@ -846,7 +846,7 @@ function getNthWeekday(year, month, dayOfWeek, n) {
 
 /**
  * シフト統計情報を計算
- * 休日数は夜勤明け後の必須休み（夜勤翌日・翌々日）を除外してカウント
+ * 休日数は夜勤明け（夜勤翌日）を除外してカウント
  */
 function calculateShiftStatistics(staffShifts, daysInMonth) {
   return staffShifts.map(staff => {
@@ -861,7 +861,6 @@ function calculateShiftStatistics(staffShifts, daysInMonth) {
       const shiftName = shift.shiftName || '休み';
       if (shiftName === '夜勤') {
         if (d + 1 <= daysInMonth) mandatoryRestDays[d + 1] = true;
-        if (d + 2 <= daysInMonth) mandatoryRestDays[d + 2] = true;
       }
     }
 

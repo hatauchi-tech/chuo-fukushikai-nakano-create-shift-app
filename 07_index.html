@@ -1782,7 +1782,6 @@
           var name = shift ? (shift.shiftName || '休み') : '休み';
           if (name === '夜勤') {
             if (d + 1 <= daysInMonth) mandatoryRestDays[d + 1] = true;
-            if (d + 2 <= daysInMonth) mandatoryRestDays[d + 2] = true;
           }
         }
 
