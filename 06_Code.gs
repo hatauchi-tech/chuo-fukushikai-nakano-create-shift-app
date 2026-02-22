@@ -1151,15 +1151,36 @@ function apiRunDiagnostics(year, month) {
 
 function apiGetShiftAssignments(year, month) {
   try {
-    return { success: true, assignments: getShiftAssignmentsByMonth(year, month) };
+    var assignments = getShiftAssignmentsByMonth(year, month);
+    // シフトIDからシフト名を解決して付加（表示用）
+    var shiftMap = getShiftMasterMap().byKey;
+    assignments.forEach(function(a) {
+      a['シフト名'] = shiftMap[a['シフトID']] || a['シフトID'];
+    });
+    return { success: true, assignments: assignments };
   } catch (e) { return { success: false, message: e.message }; }
 }
 
-function apiSaveShiftAssignment(staffName, date, shiftName, notes) {
+// ログイン中ユーザー自身の勤務指定を取得（休み希望カレンダーで表示用）
+function apiGetMyShiftAssignments(year, month) {
+  try {
+    var session = getSession();
+    if (!session) return { success: true, assignments: [] };
+    var all = getShiftAssignmentsByMonth(year, month);
+    var shiftMap = getShiftMasterMap().byKey;
+    var mine = all.filter(function(a) { return a['氏名'] === session.name; });
+    mine.forEach(function(a) {
+      a['シフト名'] = shiftMap[a['シフトID']] || a['シフトID'];
+    });
+    return { success: true, assignments: mine };
+  } catch (e) { return { success: false, message: e.message }; }
+}
+
+function apiSaveShiftAssignment(staffName, date, shiftId, notes) {
   try {
     var session = getSession();
     if (!session || !session.isAdmin) return { success: false, message: '管理者権限が必要です' };
-    var id = saveShiftAssignment(staffName, date, shiftName, session.name, notes);
+    var id = saveShiftAssignment(staffName, date, shiftId, session.name, notes);
     return { success: true, assignmentId: id, message: '勤務指定を保存しました' };
   } catch (e) { return { success: false, message: e.message }; }
 }

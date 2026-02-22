@@ -695,6 +695,8 @@
     let maxHolidays = 9;
     // カレンダーに表示中のイベントキャッシュ
     var currentEvents = [];
+    // カレンダーに表示中の勤務指定キャッシュ（ログイン中ユーザーの分）
+    var currentAssignments = [];
 
     // ページ読み込み時の初期化
     window.onload = function() {
@@ -842,13 +844,24 @@
               if (result.success) {
                 google.script.run
                   .withSuccessHandler(function(evResult) {
-                    hideLoading();
                     var events = evResult.success ? evResult.events : [];
-                    renderCalendar(year, month, result.data, events);
+                    // 自分の勤務指定を取得してカレンダーに反映
+                    google.script.run
+                      .withSuccessHandler(function(aResult) {
+                        hideLoading();
+                        var assignments = aResult.success ? aResult.assignments : [];
+                        renderCalendar(year, month, result.data, events, assignments);
+                      })
+                      .withFailureHandler(function(e) {
+                        hideLoading();
+                        renderCalendar(year, month, result.data, events, []);
+                        console.error(e);
+                      })
+                      .apiGetMyShiftAssignments(year, month);
                   })
                   .withFailureHandler(function(e) {
                     hideLoading();
-                    renderCalendar(year, month, result.data, []);
+                    renderCalendar(year, month, result.data, [], []);
                     console.error(e);
                   })
                   .apiGetEventsByMonth(year, month);
@@ -872,13 +885,23 @@
               if (result.success) {
                 google.script.run
                   .withSuccessHandler(function(evResult) {
-                    hideLoading();
                     var events = evResult.success ? evResult.events : [];
-                    renderCalendar(year, month, result.data, events);
+                    google.script.run
+                      .withSuccessHandler(function(aResult) {
+                        hideLoading();
+                        var assignments = aResult.success ? aResult.assignments : [];
+                        renderCalendar(year, month, result.data, events, assignments);
+                      })
+                      .withFailureHandler(function(e) {
+                        hideLoading();
+                        renderCalendar(year, month, result.data, events, []);
+                        console.error(e);
+                      })
+                      .apiGetMyShiftAssignments(year, month);
                   })
                   .withFailureHandler(function(e) {
                     hideLoading();
-                    renderCalendar(year, month, result.data, []);
+                    renderCalendar(year, month, result.data, [], []);
                     console.error(e);
                   })
                   .apiGetEventsByMonth(year, month);
@@ -956,15 +979,23 @@
     }
 
     // カレンダー描画
-    function renderCalendar(year, month, existingRequests, events) {
+    function renderCalendar(year, month, existingRequests, events, assignments) {
       events = events || [];
+      assignments = assignments || [];
       if (events.length > 0) currentEvents = events;
+      if (assignments.length > 0) currentAssignments = assignments;
       // 日→イベントリストのマップ
       var eventMap = {};
       events.forEach(function(e) {
         var day = parseInt(e['日付'].split('-')[2]);
         if (!eventMap[day]) eventMap[day] = [];
         eventMap[day].push(e);
+      });
+      // 日→勤務指定マップ（ログイン中ユーザーのみ）
+      var assignmentMap = {};
+      assignments.forEach(function(a) {
+        var day = parseInt(a['日付'].split('-')[2]);
+        assignmentMap[day] = a;
       });
       const calendarDiv = document.getElementById('calendar');
       calendarDiv.innerHTML = '';
@@ -998,21 +1029,34 @@
         const dayOfWeek = date.getDay();
         const request = selectedRequests.find(r => r.day === day);
         const isSelected = !!request;
+        const assignment = assignmentMap[day];
+        const isAssigned = !!assignment;
 
-        let bgColor = isSelected ? 'bg-blue-500 text-white' : 'bg-white hover:bg-blue-100';
-        let textColor = dayOfWeek === 0 ? 'text-red-600' : dayOfWeek === 6 ? 'text-blue-600' : 'text-gray-700';
-
-        if (isSelected) {
+        let bgColor, textColor;
+        if (isAssigned) {
+          // 勤務指定あり: 紫系・選択不可
+          bgColor = 'bg-purple-100 cursor-not-allowed';
+          textColor = dayOfWeek === 0 ? 'text-red-400' : dayOfWeek === 6 ? 'text-blue-400' : 'text-purple-700';
+        } else if (isSelected) {
+          bgColor = 'bg-blue-500 text-white';
           textColor = 'text-white';
+        } else {
+          bgColor = 'bg-white hover:bg-blue-100';
+          textColor = dayOfWeek === 0 ? 'text-red-600' : dayOfWeek === 6 ? 'text-blue-600' : 'text-gray-700';
         }
 
-        // 優先順位バッジを表示
+        // 優先順位バッジ or 勤務指定バッジ
         const priorityBadge = isSelected ? `<span class="text-xs">第${request.priority}希望</span>` : '';
+        const assignBadge = isAssigned
+          ? `<span class="text-xs px-1 bg-purple-500 text-white rounded">${assignment['シフト名'] || assignment['シフトID']}</span>`
+          : '';
 
-        html += `<div class="calendar-day ${isSelected ? 'selected' : ''} ${bgColor} ${textColor} border border-gray-300 rounded p-2 text-center cursor-pointer"
-                     onclick="toggleDate(${day})">
+        // 勤務指定日はonclickなし（選択不可）
+        const clickAttr = isAssigned ? '' : `onclick="toggleDate(${day})"`;
+
+        html += `<div class="calendar-day ${isSelected ? 'selected' : ''} ${bgColor} ${textColor} border border-gray-300 rounded p-2 text-center" ${clickAttr}>
                   <div class="font-bold">${day}</div>
-                  ${priorityBadge}
+                  ${priorityBadge}${assignBadge}
                 </div>`;
       }
 
@@ -1055,6 +1099,8 @@
 
     // 日付選択トグル
     function toggleDate(day) {
+      // 勤務指定がある日は選択不可
+      if (currentAssignments.some(function(a) { return parseInt(a['日付'].split('-')[2]) === day; })) return;
       const requestIndex = selectedRequests.findIndex(r => r.day === day);
       if (requestIndex >= 0) {
         // 既に選択されている場合は削除
@@ -1087,7 +1133,7 @@
         '日付': new Date(year, month - 1, r.day),
         '優先順位': r.priority
       }));
-      renderCalendar(year, month, existingRequests, currentEvents);
+      renderCalendar(year, month, existingRequests, currentEvents, currentAssignments);
 
       // 選択中の日数を更新
       const selectedCountElem = document.getElementById('selectedCount');
@@ -1159,7 +1205,7 @@
           '日付': new Date(year, month - 1, r.day),
           '優先順位': r.priority
         }));
-        renderCalendar(year, month, existingRequests, currentEvents);
+        renderCalendar(year, month, existingRequests, currentEvents, currentAssignments);
       }
     }
 
@@ -1265,7 +1311,7 @@
       selectedRequests = [];
       const targetMonth = document.getElementById('targetMonth').value;
       const [year, month] = targetMonth.split('-').map(Number);
-      renderCalendar(year, month, [], currentEvents);
+      renderCalendar(year, month, [], currentEvents, currentAssignments);
       document.getElementById('requestNotes').value = '';
     }
 
@@ -2139,10 +2185,10 @@
           defOpt.value = '';
           defOpt.textContent = '-- 選択 --';
           select.appendChild(defOpt);
-          result.shifts.filter(function(s) { return s['シフト名'] !== '休み'; }).forEach(function(s) {
+          result.shifts.filter(function(s) { return s['シフトID'] !== 'SHIFT_YASUMI'; }).forEach(function(s) {
             var opt = document.createElement('option');
-            opt.value = s['シフト名'];
-            opt.textContent = s['シフト名'];
+            opt.value = s['シフトID'];      // 保存はキー
+            opt.textContent = s['シフト名']; // 表示は名称
             select.appendChild(opt);
           });
         })

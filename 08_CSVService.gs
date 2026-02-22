@@ -211,11 +211,21 @@ function exportSettingsToCSV(year, month) {
     const daysInMonth = new Date(year, month, 0).getDate();
     settings.push(['DAYS_IN_MONTH', daysInMonth]);
 
+    // シフトマスタのキー→名称マッピングをエクスポート（Python側でシフト名を動的取得）
+    var shiftMaster = getAllShiftMaster();
+    shiftMaster.forEach(function(shift) {
+      settings.push([shift['シフトID'] + '_NAME', shift['シフト名']]);
+    });
+    if (shiftMaster.length > 0) {
+      console.log('シフトマスタをM_設定CSVに追加: ' + shiftMaster.length + '件');
+    }
+
     // 勤務指定データを設定として追加（Python側で ASSIGN_ プレフィクスで識別）
+    // 設定値はシフトID（キー）で出力。シフト名称変更があってもキーは不変
     var assignments = getShiftAssignmentsByMonth(year, month);
     assignments.forEach(function(assign) {
       var dateStr = assign['日付'].replace(/-/g, '');
-      settings.push(['ASSIGN_' + assign['氏名'] + '_' + dateStr, assign['シフト名']]);
+      settings.push(['ASSIGN_' + assign['氏名'] + '_' + dateStr, assign['シフトID']]);
     });
     if (assignments.length > 0) {
       console.log('勤務指定データをM_設定CSVに追加: ' + assignments.length + '件');

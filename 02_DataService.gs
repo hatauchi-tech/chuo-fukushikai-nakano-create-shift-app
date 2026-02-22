@@ -187,6 +187,33 @@ function getAllShiftMaster() {
   }
 }
 
+// シフトIDとシフト名の相互変換マップを返す
+// 戻り値: { byKey: {SHIFT_NIKKIN: '日勤', ...}, byName: {'日勤': 'SHIFT_NIKKIN', ...} }
+function getShiftMasterMap() {
+  try {
+    var shifts = getAllShiftMaster();
+    var byKey = {}, byName = {};
+    shifts.forEach(function(s) {
+      byKey[s['シフトID']] = s['シフト名'];
+      byName[s['シフト名']] = s['シフトID'];
+    });
+    return { byKey: byKey, byName: byName };
+  } catch (e) {
+    console.error('シフトマスタマップ取得エラー:', e);
+    // フォールバック（デフォルト値）
+    return {
+      byKey: {
+        SHIFT_HAYADE: '早出', SHIFT_NIKKIN: '日勤', SHIFT_OSODE: '遅出',
+        SHIFT_YAKIN: '夜勤', SHIFT_YASUMI: '休み'
+      },
+      byName: {
+        '早出': 'SHIFT_HAYADE', '日勤': 'SHIFT_NIKKIN', '遅出': 'SHIFT_OSODE',
+        '夜勤': 'SHIFT_YAKIN', '休み': 'SHIFT_YASUMI'
+      }
+    };
+  }
+}
+
 // シフト名からシフト情報を取得
 function getShiftByName(shiftName) {
   const allShifts = getAllShiftMaster();
@@ -707,7 +734,8 @@ function updateConfirmedShiftFields(shiftId, fields) {
 function initializeShiftAssignmentSheet() {
   var sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_ASSIGNMENT);
   if (sheet.getLastRow() === 0) {
-    var headers = ['指定ID', '氏名', 'グループ', '日付', 'シフト名', '登録者', '登録日時', '備考'];
+    // 「シフトID」列にはキー（例: SHIFT_NIKKIN）を格納。シフト名称変更に対応
+    var headers = ['指定ID', '氏名', 'グループ', '日付', 'シフトID', '登録者', '登録日時', '備考'];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#ffe0b2');
     console.log('T_勤務指定シート初期化完了');
@@ -715,7 +743,7 @@ function initializeShiftAssignmentSheet() {
   return sheet;
 }
 
-function saveShiftAssignment(staffName, date, shiftName, registeredBy, notes) {
+function saveShiftAssignment(staffName, date, shiftId, registeredBy, notes) {
   try {
     var sheet = initializeShiftAssignmentSheet();
     var timestamp = new Date();
@@ -725,7 +753,7 @@ function saveShiftAssignment(staffName, date, shiftName, registeredBy, notes) {
       Utilities.formatDate(dateObj, Session.getScriptTimeZone(), 'yyyyMMdd') + '_' + timestamp.getTime();
     var staff = getStaffByName(staffName);
     sheet.appendRow([assignmentId, staffName, staff ? staff['グループ'] : '',
-      dateObj, shiftName, registeredBy || '', timestamp, notes || '']);
+      dateObj, shiftId, registeredBy || '', timestamp, notes || '']);
     return assignmentId;
   } catch (e) {
     console.error('勤務指定保存エラー:', e);

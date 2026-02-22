@@ -21,6 +21,15 @@ function getSpreadsheet() {
   }
 }
 
+// シフトキー定数（M_シフトの「シフトID」列と対応。シフト名称変更があってもキーは不変）
+const SHIFT_KEYS = {
+  HAYADE: 'SHIFT_HAYADE',
+  NIKKIN: 'SHIFT_NIKKIN',
+  OSODE:  'SHIFT_OSODE',
+  YAKIN:  'SHIFT_YAKIN',
+  YASUMI: 'SHIFT_YASUMI'
+};
+
 // 各シート名の定義
 const SHEET_NAMES = {
   STAFF: 'M_職員',

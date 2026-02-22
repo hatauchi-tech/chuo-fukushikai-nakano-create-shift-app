@@ -55,21 +55,36 @@ from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 # 定数定義
 # ============================================
 
-# シフト種類
-SHIFT_TYPES = ['早出', '日勤', '遅出', '夜勤', '休み']
-SHIFT_EARLY = 0   # 早出
-SHIFT_DAY = 1     # 日勤
-SHIFT_LATE = 2    # 遅出
-SHIFT_NIGHT = 3   # 夜勤
-SHIFT_REST = 4    # 休み
+# シフトキー定数（M_シフトの「シフトID」列と対応。シフト名称変更があってもキーは不変）
+SHIFT_KEY_HAYADE = 'SHIFT_HAYADE'
+SHIFT_KEY_NIKKIN = 'SHIFT_NIKKIN'
+SHIFT_KEY_OSODE  = 'SHIFT_OSODE'
+SHIFT_KEY_YAKIN  = 'SHIFT_YAKIN'
+SHIFT_KEY_YASUMI = 'SHIFT_YASUMI'
 
-# シフト時間情報
-SHIFT_INFO = {
-    '早出': {'開始時間': '07:00', '終了時間': '16:00'},
-    '日勤': {'開始時間': '09:00', '終了時間': '18:00'},
-    '遅出': {'開始時間': '11:00', '終了時間': '20:00'},
-    '夜勤': {'開始時間': '17:00', '終了時間': '10:00'},  # 翌日終了
-    '休み': {'開始時間': '', '終了時間': ''}
+# インデックス定数（SHIFT_TYPES配列の順序に対応）
+SHIFT_EARLY = 0   # SHIFT_HAYADE
+SHIFT_DAY   = 1   # SHIFT_NIKKIN
+SHIFT_LATE  = 2   # SHIFT_OSODE
+SHIFT_NIGHT = 3   # SHIFT_YAKIN
+SHIFT_REST  = 4   # SHIFT_YASUMI
+
+# キー順序（インデックスと対応）
+SHIFT_KEY_ORDER = [
+    SHIFT_KEY_HAYADE,
+    SHIFT_KEY_NIKKIN,
+    SHIFT_KEY_OSODE,
+    SHIFT_KEY_YAKIN,
+    SHIFT_KEY_YASUMI,
+]
+
+# 各シフトの時間情報（キーで管理）
+SHIFT_TIME_BY_KEY = {
+    SHIFT_KEY_HAYADE: {'開始時間': '07:00', '終了時間': '16:00'},
+    SHIFT_KEY_NIKKIN: {'開始時間': '09:00', '終了時間': '18:00'},
+    SHIFT_KEY_OSODE:  {'開始時間': '11:00', '終了時間': '20:00'},
+    SHIFT_KEY_YAKIN:  {'開始時間': '17:00', '終了時間': '10:00'},  # 翌日終了
+    SHIFT_KEY_YASUMI: {'開始時間': '', '終了時間': ''},
 }
 
 # ============================================
@@ -164,7 +179,7 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
     staff_names = active_staff['氏名'].tolist()
     num_staff = len(staff_names)
     num_days = days_in_month
-    num_shifts = len(SHIFT_TYPES)
+    num_shifts = len(SHIFT_KEY_ORDER)
 
     print(f'  職員数: {num_staff}名')
     print(f'  日数: {num_days}日')
@@ -184,6 +199,22 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
     print(f'  最大連勤: {max_consecutive_work}日')
 
     # ============================================
+    # M_設定CSVからシフト名を動的取得（キー管理）
+    # SHIFT_HAYADE_NAME=早出 などの行を読み込んでSHIFT_TYPESを構築
+    # ============================================
+    shift_name_by_key = {}
+    for key in SHIFT_KEY_ORDER:
+        name = get_setting(settings_df, key + '_NAME', None)
+        shift_name_by_key[key] = str(name) if name is not None else key  # フォールバック: キーそのもの
+
+    # シフト名のリスト（インデックス順）→ SHIFT_EARLY=0がshift_name_by_key[SHIFT_KEY_HAYADE]に対応
+    SHIFT_TYPES = [shift_name_by_key[k] for k in SHIFT_KEY_ORDER]
+    # シフト時間情報（現在のシフト名でキー付け）
+    SHIFT_INFO = {shift_name_by_key[k]: SHIFT_TIME_BY_KEY[k] for k in SHIFT_KEY_ORDER}
+
+    print(f'  シフト種類: {SHIFT_TYPES}')
+
+    # ============================================
     # 事前勤務指定を解析（ASSIGN_ キー）
     # ============================================
     pre_assignments = []  # [(s, d, t, name, day, shift_name)]
@@ -198,7 +229,7 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
         year_a = int(m.group(2))
         month_a = int(m.group(3))
         day_a = int(m.group(4))
-        shift_name = str(row['設定値']).strip()
+        shift_key = str(row['設定値']).strip()  # CSVにはシフトID（キー）が格納されている
 
         if name not in staff_names:
             print(f'  ⚠️ 事前指定: 職員が見つかりません - {name}')
@@ -208,13 +239,14 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
         if day_a < 1 or day_a > num_days:
             print(f'  ⚠️ 事前指定: 日付が範囲外 - {name} {day_a}日')
             continue
-        if shift_name not in SHIFT_TYPES:
-            print(f'  ⚠️ 事前指定: 不明なシフト名 - {shift_name} ({name} {day_a}日) - スキップ')
+        if shift_key not in SHIFT_KEY_ORDER:
+            print(f'  ⚠️ 事前指定: 不明なシフトキー - {shift_key} ({name} {day_a}日) - スキップ')
             continue
 
         s = staff_names.index(name)
         d = day_a - 1  # 0-indexed
-        t = SHIFT_TYPES.index(shift_name)
+        t = SHIFT_KEY_ORDER.index(shift_key)
+        shift_name = SHIFT_TYPES[t]  # 表示用シフト名（CSVから動的取得）
         pre_assignments.append((s, d, t, name, day_a, shift_name))
 
     if pre_assignments:
@@ -498,13 +530,13 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
                     break
 
             if assigned_shift is None:
-                assigned_shift = '休み'
+                assigned_shift = shift_name_by_key[SHIFT_KEY_YASUMI]
 
             shift_info = SHIFT_INFO.get(assigned_shift, {'開始時間': '', '終了時間': ''})
 
             # 終了日を計算（夜勤の場合は翌日）
             end_date = date
-            if assigned_shift == '夜勤' and shift_info['終了時間']:
+            if assigned_shift == shift_name_by_key[SHIFT_KEY_YAKIN] and shift_info['終了時間']:
                 end_date = date + timedelta(days=1)
 
             results.append({
@@ -535,26 +567,33 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
     # 制約充足確認
     print(f'\n✅ 制約充足確認:')
 
+    # 統計用のシフト名（動的取得したシフト名を使用）
+    hayade_name = shift_name_by_key[SHIFT_KEY_HAYADE]
+    nikkin_name = shift_name_by_key[SHIFT_KEY_NIKKIN]
+    osode_name  = shift_name_by_key[SHIFT_KEY_OSODE]
+    yakin_name  = shift_name_by_key[SHIFT_KEY_YAKIN]
+    yasumi_name = shift_name_by_key[SHIFT_KEY_YASUMI]
+
     # 所定勤務日数確認（夜勤2日換算）
-    print(f'\n📊 所定勤務日数確認（夜勤2日換算、目標{scheduled_work_days}日）:')
+    print(f'\n📊 所定勤務日数確認（{yakin_name}2日換算、目標{scheduled_work_days}日）:')
     for s, name in enumerate(staff_names):
         staff_shifts = result_df[result_df['氏名'] == name]
-        normal_count = len(staff_shifts[staff_shifts['シフト名'].isin(['早出', '日勤', '遅出'])])
-        night_count = len(staff_shifts[staff_shifts['シフト名'] == '夜勤'])
-        rest_count = len(staff_shifts[staff_shifts['シフト名'] == '休み'])
+        normal_count = len(staff_shifts[staff_shifts['シフト名'].isin([hayade_name, nikkin_name, osode_name])])
+        night_count = len(staff_shifts[staff_shifts['シフト名'] == yakin_name])
+        rest_count = len(staff_shifts[staff_shifts['シフト名'] == yasumi_name])
         work_value = normal_count + night_count * 2  # 夜勤2日換算
         calendar_work = normal_count + night_count  # 暦日ベース
         if work_value != scheduled_work_days:
-            print(f'  ⚠️ {name}: {work_value}日（通常{normal_count} + 夜勤{night_count}×2）, 暦日{calendar_work}日, 休み{rest_count}日')
+            print(f'  ⚠️ {name}: {work_value}日（通常{normal_count} + {yakin_name}{night_count}×2）, 暦日{calendar_work}日, {yasumi_name}{rest_count}日')
         else:
-            print(f'  ✅ {name}: {work_value}日（通常{normal_count} + 夜勤{night_count}×2）, 暦日{calendar_work}日, 休み{rest_count}日')
+            print(f'  ✅ {name}: {work_value}日（通常{normal_count} + {yakin_name}{night_count}×2）, 暦日{calendar_work}日, {yasumi_name}{rest_count}日')
 
     # 夜勤配分確認
-    print(f'\n🌙 夜勤配分:')
+    print(f'\n🌙 {yakin_name}配分:')
     for s, name in enumerate(staff_names):
         if not staff_has_care[s]:
             staff_shifts = result_df[result_df['氏名'] == name]
-            night_count = len(staff_shifts[staff_shifts['シフト名'] == '夜勤'])
+            night_count = len(staff_shifts[staff_shifts['シフト名'] == yakin_name])
             print(f'  {name}: {night_count}回')
 
     return result_df

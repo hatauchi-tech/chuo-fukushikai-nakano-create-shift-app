@@ -113,6 +113,12 @@ function checkShiftRulesSelective(year, month, selectedRules) {
  */
 function checkMinimumStaffRule(data, staff, daysInMonth) {
   const violations = [];
+  // M_シフトからキー→現在のシフト名を動的取得
+  const sn = getShiftMasterMap().byKey;
+  const N_HAYADE = sn[SHIFT_KEYS.HAYADE] || '早出';
+  const N_NIKKIN = sn[SHIFT_KEYS.NIKKIN] || '日勤';
+  const N_OSODE  = sn[SHIFT_KEYS.OSODE]  || '遅出';
+  const N_YAKIN  = sn[SHIFT_KEYS.YAKIN]  || '夜勤';
 
   // グループごとにチェック
   for (let group = 1; group <= 6; group++) {
@@ -125,7 +131,11 @@ function checkMinimumStaffRule(data, staff, daysInMonth) {
     }).filter(i => i >= 0);
 
     for (let day = 1; day <= daysInMonth; day++) {
-      const shiftCounts = { '早出': 0, '日勤': 0, '遅出': 0, '夜勤': 0 };
+      const shiftCounts = {};
+      shiftCounts[N_HAYADE] = 0;
+      shiftCounts[N_NIKKIN] = 0;
+      shiftCounts[N_OSODE]  = 0;
+      shiftCounts[N_YAKIN]  = 0;
 
       groupIndices.forEach(rowIndex => {
         const shiftName = data[rowIndex][day + 1];  // グループ列追加により+1に変更
@@ -135,13 +145,13 @@ function checkMinimumStaffRule(data, staff, daysInMonth) {
       });
 
       // 最低人数チェック
-      if (shiftCounts['早出'] < 2) {
+      if (shiftCounts[N_HAYADE] < 2) {
         violations.push({
           type: '最低人数不足',
           group: group,
           day: day,
-          shift: '早出',
-          message: `グループ${group} ${day}日: 早出が${shiftCounts['早出']}名（最低2名必要）`
+          shift: N_HAYADE,
+          message: `グループ${group} ${day}日: ${N_HAYADE}が${shiftCounts[N_HAYADE]}名（最低2名必要）`
         });
       }
 
@@ -149,33 +159,34 @@ function checkMinimumStaffRule(data, staff, daysInMonth) {
       // ヘッダーから日付を取得して曜日を判定
       const headerDate = data[0][day + 1];  // グループ列追加により+1に変更
       const isSunday = (headerDate instanceof Date) && headerDate.getDay() === 0;
-      if (!isSunday && shiftCounts['日勤'] < 1) {
+      // 業務ルール: 日曜日は日勤0名でも可（04_ShiftService.gs の checkMinimumStaffRule と同じ仕様）
+      if (!isSunday && shiftCounts[N_NIKKIN] < 1) {
         violations.push({
           type: '最低人数不足',
           group: group,
           day: day,
-          shift: '日勤',
-          message: `グループ${group} ${day}日: 日勤が${shiftCounts['日勤']}名（最低1名必要）`
+          shift: N_NIKKIN,
+          message: `グループ${group} ${day}日: ${N_NIKKIN}が${shiftCounts[N_NIKKIN]}名（最低1名必要）`
         });
       }
 
-      if (shiftCounts['遅出'] < 1) {
+      if (shiftCounts[N_OSODE] < 1) {
         violations.push({
           type: '最低人数不足',
           group: group,
           day: day,
-          shift: '遅出',
-          message: `グループ${group} ${day}日: 遅出が${shiftCounts['遅出']}名（最低1名必要）`
+          shift: N_OSODE,
+          message: `グループ${group} ${day}日: ${N_OSODE}が${shiftCounts[N_OSODE]}名（最低1名必要）`
         });
       }
 
-      if (shiftCounts['夜勤'] < 1) {
+      if (shiftCounts[N_YAKIN] < 1) {
         violations.push({
           type: '最低人数不足',
           group: group,
           day: day,
-          shift: '夜勤',
-          message: `グループ${group} ${day}日: 夜勤が${shiftCounts['夜勤']}名（最低1名必要）`
+          shift: N_YAKIN,
+          message: `グループ${group} ${day}日: ${N_YAKIN}が${shiftCounts[N_YAKIN]}名（最低1名必要）`
         });
       }
     }
@@ -189,6 +200,7 @@ function checkMinimumStaffRule(data, staff, daysInMonth) {
  */
 function checkConsecutiveWorkDaysRule(data, staff, daysInMonth) {
   const violations = [];
+  const N_YASUMI = getShiftMasterMap().byKey[SHIFT_KEYS.YASUMI] || '休み';
 
   for (let i = 1; i < data.length; i++) {
     const name = data[i][0];
@@ -198,7 +210,7 @@ function checkConsecutiveWorkDaysRule(data, staff, daysInMonth) {
     for (let day = 1; day <= daysInMonth; day++) {
       const shiftName = data[i][day + 1];  // グループ列追加により+1に変更
 
-      if (shiftName !== '休み' && shiftName !== '') {
+      if (shiftName !== N_YASUMI && shiftName !== '') {
         if (consecutiveDays === 0) {
           startDay = day;
         }
@@ -228,6 +240,9 @@ function checkConsecutiveWorkDaysRule(data, staff, daysInMonth) {
  */
 function checkIntervalRule(data, staff, daysInMonth) {
   const violations = [];
+  const shiftMap = getShiftMasterMap().byKey;
+  const N_HAYADE = shiftMap[SHIFT_KEYS.HAYADE] || '早出';
+  const N_OSODE  = shiftMap[SHIFT_KEYS.OSODE]  || '遅出';
 
   for (let i = 1; i < data.length; i++) {
     const name = data[i][0];
@@ -236,7 +251,7 @@ function checkIntervalRule(data, staff, daysInMonth) {
       const todayShift = data[i][day + 1];  // グループ列追加により+1に変更
       const tomorrowShift = data[i][day + 2];  // グループ列追加により+2に変更
 
-      if (todayShift === '遅出' && tomorrowShift === '早出') {
+      if (todayShift === N_OSODE && tomorrowShift === N_HAYADE) {
         violations.push({
           type: 'インターバル違反',
           row: i,
@@ -256,6 +271,9 @@ function checkIntervalRule(data, staff, daysInMonth) {
  */
 function checkMaxWorkDaysRule(data, staff, daysInMonth) {
   const violations = [];
+  const shiftMap = getShiftMasterMap().byKey;
+  const N_YAKIN  = shiftMap[SHIFT_KEYS.YAKIN]  || '夜勤';
+  const N_YASUMI = shiftMap[SHIFT_KEYS.YASUMI] || '休み';
 
   for (let i = 1; i < data.length; i++) {
     const name = data[i][0];
@@ -264,9 +282,9 @@ function checkMaxWorkDaysRule(data, staff, daysInMonth) {
     for (let day = 1; day <= daysInMonth; day++) {
       const shiftName = data[i][day + 1];  // グループ列追加により+1に変更
 
-      if (shiftName === '夜勤') {
+      if (shiftName === N_YAKIN) {
         workDays += 2; // 夜勤は2日分
-      } else if (shiftName !== '休み' && shiftName !== '') {
+      } else if (shiftName !== N_YASUMI && shiftName !== '') {
         workDays += 1;
       }
     }
@@ -289,6 +307,9 @@ function checkMaxWorkDaysRule(data, staff, daysInMonth) {
  */
 function checkNightShiftRestRule(data, staff, daysInMonth) {
   const violations = [];
+  const shiftMap = getShiftMasterMap().byKey;
+  const N_YAKIN  = shiftMap[SHIFT_KEYS.YAKIN]  || '夜勤';
+  const N_YASUMI = shiftMap[SHIFT_KEYS.YASUMI] || '休み';
 
   for (let i = 1; i < data.length; i++) {
     const name = data[i][0];
@@ -298,8 +319,8 @@ function checkNightShiftRestRule(data, staff, daysInMonth) {
       const shift2 = data[i][day + 2];  // グループ列追加により+2に変更
       const shift3 = data[i][day + 3];  // グループ列追加により+3に変更
 
-      if (shift1 === '夜勤') {
-        if (shift2 !== '休み') {
+      if (shift1 === N_YAKIN) {
+        if (shift2 !== N_YASUMI) {
           violations.push({
             type: '夜勤明け違反',
             row: i,
@@ -308,7 +329,7 @@ function checkNightShiftRestRule(data, staff, daysInMonth) {
             message: `${name}: ${day}日夜勤後、${day + 1}日が休みではない`
           });
         }
-        if (shift3 !== '休み') {
+        if (shift3 !== N_YASUMI) {
           violations.push({
             type: '夜勤明け違反',
             row: i,
@@ -329,6 +350,7 @@ function checkNightShiftRestRule(data, staff, daysInMonth) {
  */
 function checkQualifiedStaffRule(data, staff, daysInMonth) {
   const violations = [];
+  const N_YAKIN = getShiftMasterMap().byKey[SHIFT_KEYS.YAKIN] || '夜勤';
 
   for (let day = 1; day <= daysInMonth; day++) {
     let hasQualified = false;
@@ -337,7 +359,7 @@ function checkQualifiedStaffRule(data, staff, daysInMonth) {
       const name = data[i][0];
       const shiftName = data[i][day + 1];  // グループ列追加により+1に変更
 
-      if (shiftName === '夜勤') {
+      if (shiftName === N_YAKIN) {
         const person = staff.find(s => s['氏名'] === name);
         if (person && (person['喀痰吸引資格者'] === true || person['喀痰吸引資格者'] === 'TRUE')) {
           hasQualified = true;
