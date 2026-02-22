@@ -9,17 +9,19 @@
 
 const CSV_SCHEMA = {
   HOLIDAY_REQUEST: {
-    headers: ['職員ID', '氏名', 'グループ', '日付', '優先順位', '特記事項'],
-    required: ['職員ID', '氏名', 'グループ', '日付', '優先順位']
+    // Python入力CSV: 氏名なし（GAS側でID→氏名変換）
+    headers: ['職員ID', 'グループ', '日付', '優先順位', '特記事項'],
+    required: ['職員ID', 'グループ', '日付', '優先順位']
   },
   SHIFT_RESULT: {
-    // Python出力形式に合わせたヘッダー
-    headers: ['確定シフトID', '職員ID', '氏名', 'グループ', 'シフト名', '勤務開始日', '開始時間', '勤務終了日', '終了時間', '登録日時', 'カレンダーイベントID'],
-    required: ['氏名', 'グループ', 'シフト名', '勤務開始日']
+    // Python出力CSV: 氏名なし（GAS側でID→氏名変換）
+    headers: ['確定シフトID', '職員ID', 'グループ', 'シフト名', '勤務開始日', '開始時間', '勤務終了日', '終了時間', '登録日時', 'カレンダーイベントID'],
+    required: ['職員ID', 'グループ', 'シフト名', '勤務開始日']
   },
   STAFF: {
-    headers: ['職員ID', '氏名', 'グループ', 'ユニット', '雇用形態', '喀痰吸引資格者', '勤務配慮', '有効'],
-    required: ['職員ID', '氏名', 'グループ']
+    // Python入力CSV: 氏名なし（GAS側でID→氏名変換）
+    headers: ['職員ID', 'グループ', 'ユニット', '雇用形態', '喀痰吸引資格者', '勤務配慮', '有効'],
+    required: ['職員ID', 'グループ']
   },
   SETTINGS: {
     headers: ['設定ID', '設定値'],
@@ -49,22 +51,22 @@ function exportHolidayRequestToCSV(year, month) {
       throw new Error('出力するデータがありません');
     }
 
-    // ヘッダー
+    // ヘッダー（動的インデックス）
     const headers = data[0];
+    const staffIdIndex = headers.indexOf('職員ID');
     const nameIndex = headers.indexOf('氏名');
     const dateIndex = headers.indexOf('日付');
     const priorityIndex = headers.indexOf('優先順位');
     const notesIndex = headers.indexOf('特記事項');
 
-    // 職員データを最初に1回だけ取得してキャッシュ（パフォーマンス改善）
+    // 職員データをキャッシュ（グループ取得 + 職員IDフォールバック用）
     const allStaff = getAllStaff();
+    const staffMapById = {};
     const staffMapByName = {};
     allStaff.forEach(staff => {
+      staffMapById[staff['職員ID']] = staff;
       staffMapByName[staff['氏名']] = staff;
     });
-
-    // シートのヘッダーから職員ID列インデックスを動的取得
-    const staffIdIndex = headers.indexOf('職員ID');
 
     // 対象月のデータをフィルタ
     const filteredRows = [];
@@ -73,17 +75,15 @@ function exportHolidayRequestToCSV(year, month) {
       const date = new Date(row[dateIndex]);
 
       if (date.getFullYear() === year && date.getMonth() + 1 === month) {
-        // キャッシュからグループ情報を取得
-        const staff = staffMapByName[row[nameIndex]];
-        const group = staff ? staff['グループ'] : '';
-        // 職員IDを取得（シートに列がある場合はそこから、なければstaffMapから）
+        // 職員IDを取得（シートの職員ID列 → 氏名からフォールバック）
         const staffId = (staffIdIndex >= 0 && row[staffIdIndex])
           ? row[staffIdIndex]
-          : (staff ? staff['職員ID'] : '');
+          : (nameIndex >= 0 && staffMapByName[row[nameIndex]] ? staffMapByName[row[nameIndex]]['職員ID'] : '');
+        const staff = staffMapById[staffId];
+        const group = staff ? staff['グループ'] : '';
 
         filteredRows.push([
           staffId,                                                  // 職員ID
-          row[nameIndex],                                           // 氏名
           group,                                                    // グループ
           Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd'), // 日付
           row[priorityIndex] || 1,                                  // 優先順位
@@ -151,7 +151,6 @@ function exportStaffToCSV(year, month) {
     staffList.forEach(staff => {
       csvRows.push([
         staff['職員ID'] || '',
-        staff['氏名'] || '',
         staff['グループ'] || '',
         staff['ユニット'] || '',
         staff['雇用形態'] || '',
@@ -369,9 +368,9 @@ function importShiftResultFromCSV(fileId) {
     const headers = csvData[0];
     const dataRows = csvData.slice(1);
 
-    // Python出力形式のカラムインデックス
+    // Python出力形式のカラムインデックス（氏名列なし）
     const shiftIdIndex = headers.indexOf('確定シフトID');
-    const nameIndex = headers.indexOf('氏名');
+    const staffIdCsvIndex = headers.indexOf('職員ID');
     const groupIndex = headers.indexOf('グループ');
     const shiftIndex = headers.indexOf('シフト名');
     const startDateIndex = headers.indexOf('勤務開始日');
@@ -388,18 +387,13 @@ function importShiftResultFromCSV(fileId) {
     console.log(`既存データ削除: ${year}年${month}月`);
     deleteConfirmedShiftByMonth(year, month);
 
-    // 職員データを最初に1回だけ取得してキャッシュ（パフォーマンス改善）
+    // 職員データをキャッシュ（職員IDから氏名・グループ・カレンダーIDを解決）
     const allStaff = getAllStaff();
     const staffMapById = {};
-    const staffMapByName = {};
     allStaff.forEach(staff => {
       if (staff['職員ID']) staffMapById[staff['職員ID']] = staff;
-      staffMapByName[staff['氏名']] = staff;
     });
     console.log(`職員キャッシュ作成: ${allStaff.length}件`);
-
-    // CSVに職員IDカラムがあれば取得
-    const staffIdCsvIndex = headers.indexOf('職員ID');
 
     // 一括保存用の配列
     const shiftsToSave = [];
@@ -412,11 +406,23 @@ function importShiftResultFromCSV(fileId) {
         return;
       }
 
+      const staffId = staffIdCsvIndex >= 0 ? row[staffIdCsvIndex] : '';
+      if (!staffId) {
+        console.warn(`職員IDが空の行をスキップ: ${row}`);
+        return;
+      }
+
+      // 職員IDから氏名・グループ・カレンダーIDを解決（GAS側で変換）
+      const staff = staffMapById[staffId];
+      if (!staff) {
+        console.warn(`職員ID '${staffId}' が職員マスタに見つかりません`);
+        return;
+      }
+
       const startDate = new Date(row[startDateIndex]);
       const startTime = row[startTimeIndex] || '00:00';
       const endTime = row[endTimeIndex] || '00:00';
 
-      // 終了日を取得（Python側で既に計算済み）
       let endDate;
       if (row[endDateIndex] && row[endDateIndex] !== '') {
         endDate = new Date(row[endDateIndex]);
@@ -427,23 +433,16 @@ function importShiftResultFromCSV(fileId) {
         }
       }
 
-      // キャッシュから職員情報を取得（職員IDで検索、フォールバックとして氏名）
-      const csvStaffId = staffIdCsvIndex >= 0 ? row[staffIdCsvIndex] : '';
-      const staff = (csvStaffId && staffMapById[csvStaffId])
-        ? staffMapById[csvStaffId]
-        : staffMapByName[row[nameIndex]];
-      const staffId = csvStaffId || (staff ? staff['職員ID'] : '');
-
       shiftsToSave.push({
         '職員ID': staffId,
-        '氏名': row[nameIndex],
-        'グループ': row[groupIndex],
+        '氏名': staff['氏名'],        // GAS側で職員IDから解決
+        'グループ': staff['グループ'], // GAS側で職員IDから解決
         'シフト名': shiftName,
         '勤務開始日': startDate,
         '開始時間': startTime,
         '勤務終了日': endDate,
         '終了時間': endTime,
-        'カレンダーID': staff ? staff['カレンダーID'] : ''
+        'カレンダーID': staff['カレンダーID'] || ''
       });
     });
 
@@ -496,15 +495,15 @@ function validateShiftResultCSV(csvData) {
   }
 
   // 各行のバリデーション（サンプル：最初の5行のみ）
-  const nameIndex = headers.indexOf('氏名');
+  const staffIdIndex = headers.indexOf('職員ID');
   const startDateIndex = headers.indexOf('勤務開始日');
   const shiftIndex = headers.indexOf('シフト名');
 
   for (let i = 1; i < Math.min(csvData.length, 6); i++) {
     const row = csvData[i];
 
-    if (!row[nameIndex]) {
-      errors.push(`${i + 1}行目: 氏名が空です`);
+    if (!row[staffIdIndex]) {
+      errors.push(`${i + 1}行目: 職員IDが空です`);
     }
 
     if (!row[startDateIndex]) {

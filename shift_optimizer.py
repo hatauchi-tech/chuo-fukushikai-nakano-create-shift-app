@@ -174,10 +174,9 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
     days_in_month = calendar.monthrange(year, month)[1]
     dates = [datetime(year, month, d) for d in range(1, days_in_month + 1)]
 
-    # 有効な職員のみ
-    active_staff = staff_df[staff_df['有効'] == True].copy()
-    staff_ids = active_staff['職員ID'].tolist()    # 一意識別子として職員IDを使用
-    staff_names = active_staff['氏名'].tolist()    # 表示・CSV出力用
+    # 有効な職員のみ（CSVに氏名なし、職員IDで識別）
+    active_staff = staff_df[staff_df['有効'].isin([True, 'TRUE'])].copy()
+    staff_ids = active_staff['職員ID'].tolist()
     num_staff = len(staff_ids)
     num_days = days_in_month
     num_shifts = len(SHIFT_KEY_ORDER)
@@ -218,7 +217,7 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
     # ============================================
     # 事前勤務指定を解析（ASSIGN_ キー）
     # ============================================
-    pre_assignments = []  # [(s, d, t, staff_id, name, day, shift_name)]
+    pre_assignments = []  # [(s, d, t, staff_id, day, shift_name)]
 
     # 職員ID→インデックスのマッピング
     staff_id_to_idx = {sid: i for i, sid in enumerate(staff_ids)}
@@ -229,21 +228,14 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
         m = re.match(r'ASSIGN_(.+)_(\d{4})(\d{2})(\d{2})$', setting_id)
         if not m:
             continue
-        staff_key = m.group(1)  # 職員IDまたは氏名（後方互換）
+        staff_key = m.group(1)  # 職員ID
         year_a = int(m.group(2))
         month_a = int(m.group(3))
         day_a = int(m.group(4))
         shift_key = str(row['設定値']).strip()  # CSVにはシフトID（キー）が格納されている
 
-        # 職員IDで検索、フォールバックとして氏名も使用
-        if staff_key in staff_id_to_idx:
-            s = staff_id_to_idx[staff_key]
-            name = staff_names[s]
-        elif staff_key in staff_names:
-            s = staff_names.index(staff_key)
-            name = staff_key
-        else:
-            print(f'  ⚠️ 事前指定: 職員が見つかりません - {staff_key}')
+        if staff_key not in staff_id_to_idx:
+            print(f'  ⚠️ 事前指定: 職員IDが見つかりません - {staff_key}')
             continue
         if year_a != year or month_a != month:
             continue
@@ -254,10 +246,11 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
             print(f'  ⚠️ 事前指定: 不明なシフトキー - {shift_key} ({staff_key} {day_a}日) - スキップ')
             continue
 
+        s = staff_id_to_idx[staff_key]
         d = day_a - 1  # 0-indexed
         t = SHIFT_KEY_ORDER.index(shift_key)
-        shift_name = SHIFT_TYPES[t]  # 表示用シフト名（CSVから動的取得）
-        pre_assignments.append((s, d, t, staff_ids[s], name, day_a, shift_name))
+        shift_name = SHIFT_TYPES[t]
+        pre_assignments.append((s, d, t, staff_ids[s], day_a, shift_name))
 
     if pre_assignments:
         print(f'  📌 事前勤務指定: {len(pre_assignments)}件')
@@ -312,9 +305,9 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
     # ============================================
     # 制約0: 事前勤務指定（ハード制約）
     # ============================================
-    for s, d, t, staff_id, name, day, shift_name in pre_assignments:
+    for s, d, t, staff_id, day, shift_name in pre_assignments:
         model.Add(shifts[(s, d, t)] == 1)
-        print(f'    → {staff_id}({name}) {day}日: {shift_name} を固定')
+        print(f'    → {staff_id} {day}日: {shift_name} を固定')
 
     # ============================================
     # 制約1: 休み希望（優先順位1は必須、2以降はソフト制約）
@@ -323,16 +316,12 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
     soft_holiday_penalties = []
 
     for _, row in holiday_df.iterrows():
-        # 職員IDで照合、フォールバックとして氏名も使用
-        row_staff_id = str(row.get('職員ID', '')) if '職員ID' in row.index else ''
-        staff_name = row['氏名']
-
-        if row_staff_id and row_staff_id in staff_id_to_idx:
-            s = staff_id_to_idx[row_staff_id]
-        elif staff_name in staff_names:
-            s = staff_names.index(staff_name)
-        else:
+        # 職員IDで照合（CSVに氏名なし）
+        row_staff_id = str(row['職員ID'])
+        if row_staff_id not in staff_id_to_idx:
+            print(f'  ⚠️ 休み希望: 職員IDが見つかりません - {row_staff_id}')
             continue
+        s = staff_id_to_idx[row_staff_id]
 
         request_date = pd.to_datetime(row['日付']).date()
 
@@ -532,7 +521,6 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
     results = []
 
     for s, staff_id in enumerate(staff_ids):
-        staff_name = staff_names[s]
         staff_info = active_staff[active_staff['職員ID'] == staff_id].iloc[0]
         group = staff_info['グループ']
 
@@ -559,7 +547,6 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
             results.append({
                 '確定シフトID': '',
                 '職員ID': staff_id,
-                '氏名': staff_name,
                 'グループ': group,
                 'シフト名': assigned_shift,
                 '勤務開始日': date.strftime('%Y-%m-%d'),
@@ -595,7 +582,6 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
     # 所定勤務日数確認（夜勤2日換算）
     print(f'\n📊 所定勤務日数確認（{yakin_name}2日換算、目標{scheduled_work_days}日）:')
     for s, staff_id in enumerate(staff_ids):
-        name = staff_names[s]
         staff_shifts = result_df[result_df['職員ID'] == staff_id]
         normal_count = len(staff_shifts[staff_shifts['シフト名'].isin([hayade_name, nikkin_name, osode_name])])
         night_count = len(staff_shifts[staff_shifts['シフト名'] == yakin_name])
@@ -603,18 +589,17 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
         work_value = normal_count + night_count * 2  # 夜勤2日換算
         calendar_work = normal_count + night_count  # 暦日ベース
         if work_value != scheduled_work_days:
-            print(f'  ⚠️ {staff_id}({name}): {work_value}日（通常{normal_count} + {yakin_name}{night_count}×2）, 暦日{calendar_work}日, {yasumi_name}{rest_count}日')
+            print(f'  ⚠️ {staff_id}: {work_value}日（通常{normal_count} + {yakin_name}{night_count}×2）, 暦日{calendar_work}日, {yasumi_name}{rest_count}日')
         else:
-            print(f'  ✅ {staff_id}({name}): {work_value}日（通常{normal_count} + {yakin_name}{night_count}×2）, 暦日{calendar_work}日, {yasumi_name}{rest_count}日')
+            print(f'  ✅ {staff_id}: {work_value}日（通常{normal_count} + {yakin_name}{night_count}×2）, 暦日{calendar_work}日, {yasumi_name}{rest_count}日')
 
     # 夜勤配分確認
     print(f'\n🌙 {yakin_name}配分:')
     for s, staff_id in enumerate(staff_ids):
-        name = staff_names[s]
         if not staff_has_care[s]:
             staff_shifts = result_df[result_df['職員ID'] == staff_id]
             night_count = len(staff_shifts[staff_shifts['シフト名'] == yakin_name])
-            print(f'  {staff_id}({name}): {night_count}回')
+            print(f'  {staff_id}: {night_count}回')
 
     return result_df
 
