@@ -352,6 +352,8 @@ function initializeAllSheets() {
       initializeShiftMasterSheet();
       initializeHolidayRequestSheet();
       initializeConfirmedShiftSheet();
+      initializeShiftAssignmentSheet();
+      initializeEventSheet();
 
       // M_設定シートを初期化
       const settingsSheet = getOrCreateSheet(SHEET_NAMES.SETTINGS);
@@ -1146,3 +1148,4 @@ function apiRunDiagnostics(year, month) {
     return { success: false, message: e.message };
   }
 }
+

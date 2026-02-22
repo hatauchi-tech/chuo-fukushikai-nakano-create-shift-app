@@ -28,7 +28,9 @@ const SHEET_NAMES = {
   HOLIDAY_REQUEST: 'T_シフト休み希望',
   CONFIRMED_SHIFT: 'T_確定シフト',
   SETTINGS: 'M_設定',
-  WORK_SHEET: 'シフト作業用'
+  WORK_SHEET: 'シフト作業用',
+  SHIFT_ASSIGNMENT: 'T_勤務指定',
+  EVENT: 'M_イベント'
 };
 
 // シートを取得（存在しなければ作成）

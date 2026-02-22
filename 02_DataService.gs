@@ -699,3 +699,135 @@ function updateConfirmedShiftFields(shiftId, fields) {
     throw e;
   }
 }
+
+// ============================================
+// T_勤務指定（事前シフト固定）関連
+// ============================================
+
+function initializeShiftAssignmentSheet() {
+  var sheet = getOrCreateSheet('T_勤務指定');
+  if (sheet.getLastRow() === 0) {
+    var headers = ['指定ID', '氏名', 'グループ', '日付', 'シフト名', '登録者', '登録日時', '備考'];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#ffe0b2');
+    console.log('T_勤務指定シート初期化完了');
+  }
+  return sheet;
+}
+
+function saveShiftAssignment(staffName, date, shiftName, registeredBy, notes) {
+  var sheet = initializeShiftAssignmentSheet();
+  var timestamp = new Date();
+  var dateObj = new Date(date);
+  deleteShiftAssignmentByNameAndDate(staffName, dateObj);
+  var assignmentId = 'ASSIGN_' + staffName + '_' +
+    Utilities.formatDate(dateObj, Session.getScriptTimeZone(), 'yyyyMMdd') + '_' + timestamp.getTime();
+  var staff = getStaffByName(staffName);
+  sheet.appendRow([assignmentId, staffName, staff ? staff['グループ'] : '',
+    dateObj, shiftName, registeredBy || '', timestamp, notes || '']);
+  return assignmentId;
+}
+
+function deleteShiftAssignmentByNameAndDate(staffName, dateObj) {
+  var sheet = getOrCreateSheet('T_勤務指定');
+  if (sheet.getLastRow() <= 1) return;
+  var data = sheet.getDataRange().getValues();
+  var targetStr = Utilities.formatDate(dateObj, Session.getScriptTimeZone(), 'yyyyMMdd');
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (data[i][1] === staffName && data[i][3]) {
+      var rowStr = Utilities.formatDate(new Date(data[i][3]), Session.getScriptTimeZone(), 'yyyyMMdd');
+      if (rowStr === targetStr) { sheet.deleteRow(i + 1); }
+    }
+  }
+}
+
+function deleteShiftAssignmentById(assignmentId) {
+  var sheet = getOrCreateSheet('T_勤務指定');
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0] === assignmentId) { sheet.deleteRow(i + 1); return true; }
+  }
+  return false;
+}
+
+function getShiftAssignmentsByMonth(year, month) {
+  var sheet = getOrCreateSheet('T_勤務指定');
+  if (sheet.getLastRow() <= 1) return [];
+  var data = sheet.getDataRange().getValues();
+  var headers = data[0];
+  var assignments = [];
+  for (var i = 1; i < data.length; i++) {
+    var dateVal = data[i][3];
+    if (!dateVal) continue;
+    var date = new Date(dateVal);
+    if (date.getFullYear() == year && date.getMonth() + 1 == month) {
+      var assignment = {};
+      headers.forEach(function(header, idx) {
+        var value = data[i][idx];
+        assignment[header] = (value instanceof Date)
+          ? Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+          : (value !== null && value !== undefined ? String(value) : '');
+      });
+      assignments.push(assignment);
+    }
+  }
+  return assignments;
+}
+
+// ============================================
+// M_イベント関連（予定・イベント表示）
+// ============================================
+
+function initializeEventSheet() {
+  var sheet = getOrCreateSheet('M_イベント');
+  if (sheet.getLastRow() === 0) {
+    var headers = ['イベントID', 'タイトル', '日付', '備考', '登録者', '登録日時'];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#d4edda');
+    console.log('M_イベントシート初期化完了');
+  }
+  return sheet;
+}
+
+function saveEvent(title, date, notes, registeredBy) {
+  var sheet = initializeEventSheet();
+  var timestamp = new Date();
+  var dateObj = new Date(date);
+  var eventId = 'EVT_' + Utilities.formatDate(dateObj, Session.getScriptTimeZone(), 'yyyyMMdd') +
+    '_' + timestamp.getTime();
+  sheet.appendRow([eventId, title, dateObj, notes || '', registeredBy || '', timestamp]);
+  return eventId;
+}
+
+function deleteEventById(eventId) {
+  var sheet = getOrCreateSheet('M_イベント');
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0] === eventId) { sheet.deleteRow(i + 1); return true; }
+  }
+  return false;
+}
+
+function getEventsByMonth(year, month) {
+  var sheet = getOrCreateSheet('M_イベント');
+  if (sheet.getLastRow() <= 1) return [];
+  var data = sheet.getDataRange().getValues();
+  var headers = data[0];
+  var events = [];
+  for (var i = 1; i < data.length; i++) {
+    var dateVal = data[i][2];
+    if (!dateVal) continue;
+    var date = new Date(dateVal);
+    if (date.getFullYear() == year && date.getMonth() + 1 == month) {
+      var ev = {};
+      headers.forEach(function(header, idx) {
+        var value = data[i][idx];
+        ev[header] = (value instanceof Date)
+          ? Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+          : (value !== null && value !== undefined ? String(value) : '');
+      });
+      events.push(ev);
+    }
+  }
+  return events;
+}
