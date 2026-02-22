@@ -38,6 +38,7 @@ WEBHOOK_TOKEN = ''  #@param {type:"string"}
 
 # !pip install -q ortools pandas
 
+import re
 import pandas as pd
 import numpy as np
 import calendar
@@ -182,6 +183,45 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
     print(f'  所定勤務日数: {scheduled_work_days}日（夜勤2日換算）')
     print(f'  最大連勤: {max_consecutive_work}日')
 
+    # ============================================
+    # 事前勤務指定を解析（ASSIGN_ キー）
+    # ============================================
+    pre_assignments = []  # [(s, d, t, name, day, shift_name)]
+
+    for _, row in settings_df.iterrows():
+        setting_id = str(row['設定ID'])
+        # ASSIGN_氏名_YYYYMMDD 形式をパース
+        m = re.match(r'ASSIGN_(.+)_(\d{4})(\d{2})(\d{2})$', setting_id)
+        if not m:
+            continue
+        name = m.group(1)
+        year_a = int(m.group(2))
+        month_a = int(m.group(3))
+        day_a = int(m.group(4))
+        shift_name = str(row['設定値']).strip()
+
+        if name not in staff_names:
+            print(f'  ⚠️ 事前指定: 職員が見つかりません - {name}')
+            continue
+        if year_a != year or month_a != month:
+            continue
+        if day_a < 1 or day_a > num_days:
+            print(f'  ⚠️ 事前指定: 日付が範囲外 - {name} {day_a}日')
+            continue
+        if shift_name not in SHIFT_TYPES:
+            print(f'  ⚠️ 事前指定: 不明なシフト名 - {shift_name} ({name} {day_a}日) - スキップ')
+            continue
+
+        s = staff_names.index(name)
+        d = day_a - 1  # 0-indexed
+        t = SHIFT_TYPES.index(shift_name)
+        pre_assignments.append((s, d, t, name, day_a, shift_name))
+
+    if pre_assignments:
+        print(f'  📌 事前勤務指定: {len(pre_assignments)}件')
+    else:
+        print('  📌 事前勤務指定: なし')
+
     # 職員属性を取得
     staff_has_care = {}  # 勤務配慮あり
     staff_has_suction = {}  # 喀痰吸引資格
@@ -226,6 +266,13 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
     for s in range(num_staff):
         for d in range(num_days):
             model.AddExactlyOne(shifts[(s, d, t)] for t in range(num_shifts))
+
+    # ============================================
+    # 制約0: 事前勤務指定（ハード制約）
+    # ============================================
+    for s, d, t, name, day, shift_name in pre_assignments:
+        model.Add(shifts[(s, d, t)] == 1)
+        print(f'    → {name} {day}日: {shift_name} を固定')
 
     # ============================================
     # 制約1: 休み希望（優先順位1は必須、2以降はソフト制約）
