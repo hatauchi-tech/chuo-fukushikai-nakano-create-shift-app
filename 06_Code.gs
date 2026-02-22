@@ -1149,3 +1149,50 @@ function apiRunDiagnostics(year, month) {
   }
 }
 
+function apiGetShiftAssignments(year, month) {
+  try {
+    return { success: true, assignments: getShiftAssignmentsByMonth(year, month) };
+  } catch (e) { return { success: false, message: e.message }; }
+}
+
+function apiSaveShiftAssignment(staffName, date, shiftName, notes) {
+  try {
+    var session = getSession();
+    if (!session || !session.isAdmin) return { success: false, message: '管理者権限が必要です' };
+    var id = saveShiftAssignment(staffName, date, shiftName, session.name, notes);
+    return { success: true, assignmentId: id, message: '勤務指定を保存しました' };
+  } catch (e) { return { success: false, message: e.message }; }
+}
+
+function apiDeleteShiftAssignment(assignmentId) {
+  try {
+    var session = getSession();
+    if (!session || !session.isAdmin) return { success: false, message: '管理者権限が必要です' };
+    var result = deleteShiftAssignmentById(assignmentId);
+    return { success: result, message: result ? '削除しました' : 'データが見つかりません' };
+  } catch (e) { return { success: false, message: e.message }; }
+}
+
+function apiGetEventsByMonth(year, month) {
+  try {
+    return { success: true, events: getEventsByMonth(year, month) };
+  } catch (e) { return { success: false, message: e.message }; }
+}
+
+function apiSaveEvent(title, date, notes) {
+  try {
+    var session = getSession();
+    if (!session || !session.isAdmin) return { success: false, message: '管理者権限が必要です' };
+    var id = saveEvent(title, date, notes, session.name);
+    return { success: true, eventId: id, message: 'イベントを保存しました' };
+  } catch (e) { return { success: false, message: e.message }; }
+}
+
+function apiDeleteEvent(eventId) {
+  try {
+    var session = getSession();
+    if (!session || !session.isAdmin) return { success: false, message: '管理者権限が必要です' };
+    var result = deleteEventById(eventId);
+    return { success: result, message: result ? '削除しました' : 'データが見つかりません' };
+  } catch (e) { return { success: false, message: e.message }; }
+}
