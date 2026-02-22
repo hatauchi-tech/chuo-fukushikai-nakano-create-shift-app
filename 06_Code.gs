@@ -1096,7 +1096,7 @@ function apiRunDiagnostics(year, month) {
     // グループ別・日別チェック
     for (var d = 1; d <= daysInMonth; d++) {
       var groupCounts = {};
-      var nightQualified = false;
+      var nightQualifiedByGroup = {};
 
       staffNames.forEach(function(name) {
         var entry = staffShiftMap[name];
@@ -1109,7 +1109,7 @@ function apiRunDiagnostics(year, month) {
         if (groupCounts[group].hasOwnProperty(s)) { groupCounts[group][s]++; }
         if (s === '夜勤' &&
             (entry.staffInfo['喀痰吸引資格者'] === true || entry.staffInfo['喀痰吸引資格者'] === 'TRUE')) {
-          nightQualified = true;
+          nightQualifiedByGroup[group] = true;
         }
       });
 
@@ -1117,6 +1117,7 @@ function apiRunDiagnostics(year, month) {
         var c = groupCounts[group];
         if (c['早出'] < 2) violations.push({ type: '最低人数不足', level: 'error', day: d,
           message: d + '日 G' + group + ': 早出' + c['早出'] + '名（最低2名必要）' });
+        // 業務ルール: 日曜日は日勤0名でも可（04_ShiftService.gs の checkMinimumStaffRule と同じ仕様）
         var isSunday = new Date(year, month - 1, d).getDay() === 0;
         if (!isSunday && c['日勤'] < 1) violations.push({ type: '最低人数不足', level: 'error', day: d,
           message: d + '日 G' + group + ': 日勤' + c['日勤'] + '名（最低1名必要）' });
@@ -1124,12 +1125,11 @@ function apiRunDiagnostics(year, month) {
           message: d + '日 G' + group + ': 遅出' + c['遅出'] + '名（最低1名必要）' });
         if (c['夜勤'] < 1) violations.push({ type: '最低人数不足', level: 'error', day: d,
           message: d + '日 G' + group + ': 夜勤' + c['夜勤'] + '名（最低1名必要）' });
+        if (!nightQualifiedByGroup[group]) {
+          warnings.push({ type: '資格者不在', level: 'warning', day: d,
+            message: d + '日 G' + group + ': 夜勤に喀痰吸引資格者が配置されていません' });
+        }
       });
-
-      if (!nightQualified) {
-        warnings.push({ type: '資格者不在', level: 'warning', day: d,
-          message: d + '日: 夜勤に喀痰吸引資格者が配置されていません' });
-      }
     }
 
     var allIssues = violations.concat(warnings);
