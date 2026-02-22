@@ -211,6 +211,16 @@ function exportSettingsToCSV(year, month) {
     const daysInMonth = new Date(year, month, 0).getDate();
     settings.push(['DAYS_IN_MONTH', daysInMonth]);
 
+    // 勤務指定データを設定として追加（Python側で ASSIGN_ プレフィクスで識別）
+    var assignments = getShiftAssignmentsByMonth(year, month);
+    assignments.forEach(function(assign) {
+      var dateStr = assign['日付'].replace(/-/g, '');
+      settings.push(['ASSIGN_' + assign['氏名'] + '_' + dateStr, assign['シフト名']]);
+    });
+    if (assignments.length > 0) {
+      console.log('勤務指定データをM_設定CSVに追加: ' + assignments.length + '件');
+    }
+
     // CSVデータ作成
     const csvHeaders = CSV_SCHEMA.SETTINGS.headers;
     const csvRows = [csvHeaders, ...settings];
