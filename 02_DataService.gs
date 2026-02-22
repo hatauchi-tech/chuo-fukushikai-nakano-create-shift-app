@@ -71,7 +71,7 @@ function getActiveStaff() {
 // ログインIDで職員を検索
 function getStaffByLoginId(loginId) {
   const allStaff = getAllStaff();
-  return allStaff.find(staff => staff['ログインID'] === loginId);
+  return allStaff.find(staff => String(staff['ログインID']) === String(loginId));
 }
 
 // 氏名で職員を検索

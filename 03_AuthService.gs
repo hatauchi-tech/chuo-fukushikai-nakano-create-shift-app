@@ -28,7 +28,7 @@ function authenticateUser(loginId, password) {
     }
 
     // パスワードチェック
-    if (staff['パスワード'] !== password) {
+    if (String(staff['パスワード']) !== String(password)) {
       console.log(`ログイン失敗: パスワード不一致 (${loginId})`);
       return {
         success: false,
