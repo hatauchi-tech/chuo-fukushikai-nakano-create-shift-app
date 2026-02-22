@@ -1002,3 +1002,147 @@ function apiConfirmShiftsAndRegisterCalendar(year, month, group) {
     return { success: false, message: e.message };
   }
 }
+
+// ============================================
+// 診断レポートAPI（フェーズ1追加）
+// ============================================
+
+/**
+ * 診断レポートAPI - T_確定シフトをもとにルールチェックを実行
+ * @param {number} year - 対象年
+ * @param {number} month - 対象月
+ */
+function apiRunDiagnostics(year, month) {
+  try {
+    var violations = [];
+    var warnings = [];
+    var confirmedShifts = getConfirmedShiftsByMonth(year, month);
+
+    if (confirmedShifts.length === 0) {
+      return {
+        success: true, hasData: false,
+        violations: [], warnings: [],
+        summary: { total: 0, error: 0, warning: 0 },
+        message: year + '年' + month + '月の確定シフトデータがありません'
+      };
+    }
+
+    var daysInMonth = new Date(year, month, 0).getDate();
+    var allStaff = getActiveStaff();
+
+    // 職員ごとのシフトマップを構築
+    var staffShiftMap = {};
+    allStaff.forEach(function(staff) {
+      staffShiftMap[staff['氏名']] = { staffInfo: staff, shifts: {} };
+      for (var d = 1; d <= daysInMonth; d++) {
+        staffShiftMap[staff['氏名']].shifts[d] = '休み';
+      }
+    });
+    confirmedShifts.forEach(function(shift) {
+      var day = new Date(shift['勤務開始日']).getDate();
+      var name = shift['氏名'];
+      if (staffShiftMap[name]) {
+        staffShiftMap[name].shifts[day] = shift['シフト名'] || '休み';
+      }
+    });
+
+    var staffNames = Object.keys(staffShiftMap);
+
+    // 個人ルールチェック
+    staffNames.forEach(function(name) {
+      var entry = staffShiftMap[name];
+      var consecutiveDays = 0;
+      var consecutiveStart = 0;
+      var workDays = 0;
+
+      for (var d = 1; d <= daysInMonth; d++) {
+        var s = entry.shifts[d];
+
+        if (s !== '休み' && s !== '') {
+          if (consecutiveDays === 0) consecutiveStart = d;
+          consecutiveDays++;
+          if (consecutiveDays >= 6) {
+            violations.push({ type: '連勤制限違反', level: 'error', day: d,
+              message: name + ': ' + consecutiveStart + '日〜' + d + '日 (' + consecutiveDays + '連勤)' });
+          }
+        } else { consecutiveDays = 0; }
+
+        if (s === '夜勤') { workDays += 2; }
+        else if (s !== '休み' && s !== '') { workDays += 1; }
+
+        if (d < daysInMonth && s === '遅出' && entry.shifts[d + 1] === '早出') {
+          violations.push({ type: 'インターバル違反', level: 'error', day: d,
+            message: name + ': ' + d + '日遅出 → ' + (d + 1) + '日早出' });
+        }
+
+        if (s === '夜勤') {
+          if (d + 1 <= daysInMonth && entry.shifts[d + 1] !== '休み') {
+            violations.push({ type: '夜勤明け違反', level: 'error', day: d + 1,
+              message: name + ': ' + d + '日夜勤後、' + (d + 1) + '日が休みではない' });
+          }
+          if (d + 2 <= daysInMonth && entry.shifts[d + 2] !== '休み') {
+            violations.push({ type: '夜勤明け違反', level: 'error', day: d + 2,
+              message: name + ': ' + d + '日夜勤後、' + (d + 2) + '日が休みではない' });
+          }
+        }
+      }
+
+      if (workDays > 21) {
+        violations.push({ type: '勤務日数超過', level: 'error', day: null,
+          message: name + ': 勤務日数' + workDays + '日（上限21日）' });
+      }
+    });
+
+    // グループ別・日別チェック
+    for (var d = 1; d <= daysInMonth; d++) {
+      var groupCounts = {};
+      var nightQualified = false;
+
+      staffNames.forEach(function(name) {
+        var entry = staffShiftMap[name];
+        var s = entry.shifts[d];
+        var group = entry.staffInfo['グループ'];
+        if (!group) return;
+        if (!groupCounts[group]) {
+          groupCounts[group] = { '早出': 0, '日勤': 0, '遅出': 0, '夜勤': 0 };
+        }
+        if (groupCounts[group].hasOwnProperty(s)) { groupCounts[group][s]++; }
+        if (s === '夜勤' &&
+            (entry.staffInfo['喀痰吸引資格者'] === true || entry.staffInfo['喀痰吸引資格者'] === 'TRUE')) {
+          nightQualified = true;
+        }
+      });
+
+      Object.keys(groupCounts).forEach(function(group) {
+        var c = groupCounts[group];
+        if (c['早出'] < 2) violations.push({ type: '最低人数不足', level: 'error', day: d,
+          message: d + '日 G' + group + ': 早出' + c['早出'] + '名（最低2名必要）' });
+        var isSunday = new Date(year, month - 1, d).getDay() === 0;
+        if (!isSunday && c['日勤'] < 1) violations.push({ type: '最低人数不足', level: 'error', day: d,
+          message: d + '日 G' + group + ': 日勤' + c['日勤'] + '名（最低1名必要）' });
+        if (c['遅出'] < 1) violations.push({ type: '最低人数不足', level: 'error', day: d,
+          message: d + '日 G' + group + ': 遅出' + c['遅出'] + '名（最低1名必要）' });
+        if (c['夜勤'] < 1) violations.push({ type: '最低人数不足', level: 'error', day: d,
+          message: d + '日 G' + group + ': 夜勤' + c['夜勤'] + '名（最低1名必要）' });
+      });
+
+      if (!nightQualified) {
+        warnings.push({ type: '資格者不在', level: 'warning', day: d,
+          message: d + '日: 夜勤に喀痰吸引資格者が配置されていません' });
+      }
+    }
+
+    var allIssues = violations.concat(warnings);
+    allIssues.sort(function(a, b) { return (a.day || 0) - (b.day || 0); });
+
+    return {
+      success: true, hasData: true,
+      violations: violations, warnings: warnings,
+      summary: { total: allIssues.length, error: violations.length, warning: warnings.length },
+      message: '診断完了: エラー' + violations.length + '件、警告' + warnings.length + '件'
+    };
+  } catch (e) {
+    console.error('診断レポートエラー:', e);
+    return { success: false, message: e.message };
+  }
+}
