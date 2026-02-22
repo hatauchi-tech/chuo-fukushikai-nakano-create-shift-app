@@ -693,6 +693,8 @@
     let selectedRequests = [];
     // 月間公休数（優先順位の上限）
     let maxHolidays = 9;
+    // カレンダーに表示中のイベントキャッシュ
+    var currentEvents = [];
 
     // ページ読み込み時の初期化
     window.onload = function() {
@@ -850,6 +852,8 @@
                     console.error(e);
                   })
                   .apiGetEventsByMonth(year, month);
+              } else {
+                hideLoading();
               }
             })
             .withFailureHandler(function(error) {
@@ -878,6 +882,8 @@
                     console.error(e);
                   })
                   .apiGetEventsByMonth(year, month);
+              } else {
+                hideLoading();
               }
             })
             .withFailureHandler(function(error) {
@@ -952,6 +958,7 @@
     // カレンダー描画
     function renderCalendar(year, month, existingRequests, events) {
       events = events || [];
+      if (events.length > 0) currentEvents = events;
       // 日→イベントリストのマップ
       var eventMap = {};
       events.forEach(function(e) {
@@ -1080,7 +1087,7 @@
         '日付': new Date(year, month - 1, r.day),
         '優先順位': r.priority
       }));
-      renderCalendar(year, month, existingRequests);
+      renderCalendar(year, month, existingRequests, currentEvents);
 
       // 選択中の日数を更新
       const selectedCountElem = document.getElementById('selectedCount');
@@ -1152,7 +1159,7 @@
           '日付': new Date(year, month - 1, r.day),
           '優先順位': r.priority
         }));
-        renderCalendar(year, month, existingRequests);
+        renderCalendar(year, month, existingRequests, currentEvents);
       }
     }
 
@@ -1258,7 +1265,7 @@
       selectedRequests = [];
       const targetMonth = document.getElementById('targetMonth').value;
       const [year, month] = targetMonth.split('-').map(Number);
-      renderCalendar(year, month, []);
+      renderCalendar(year, month, [], currentEvents);
       document.getElementById('requestNotes').value = '';
     }
 
