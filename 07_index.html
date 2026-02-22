@@ -86,6 +86,12 @@
               シフトマスタ管理
             </button>
           </li>
+          <li>
+            <button onclick="showView('shift-assignment')"
+              class="nav-btn px-4 py-2 rounded hover:bg-blue-100 transition bg-purple-50 border border-purple-200">
+              勤務指定
+            </button>
+          </li>
         </ul>
       </div>
     </nav>
@@ -554,6 +560,78 @@
         </div>
       </div>
 
+      <!-- 勤務指定管理画面（管理者専用） -->
+      <div id="shiftAssignmentView" class="hidden">
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h2 class="text-2xl font-bold mb-4 text-gray-800">事前勤務指定（シフト固定）</h2>
+          <p class="text-gray-600 mb-4 text-sm bg-yellow-50 border border-yellow-200 rounded p-3">
+            自動シフト作成前に特定の職員の特定日のシフトを固定できます。
+            3種CSV出力時に M_設定.csv に含まれます。
+          </p>
+          <div class="mb-4 flex gap-2">
+            <input type="month" id="shiftAssignTargetMonth"
+              class="px-4 py-2 border border-gray-300 rounded-lg">
+            <button onclick="loadShiftAssignments()"
+              class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition">
+              表示
+            </button>
+          </div>
+          <div class="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4">
+            <h3 class="text-md font-semibold text-purple-800 mb-3">新規勤務指定を追加</h3>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">職員名</label>
+                <select id="assignStaffName"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                  <option value="">-- 選択 --</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">日付</label>
+                <input type="date" id="assignDate"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">シフト</label>
+                <select id="assignShiftName"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                  <option value="">-- 選択 --</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">備考</label>
+                <input type="text" id="assignNotes"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+              </div>
+            </div>
+            <div class="mt-3">
+              <button onclick="addShiftAssignment()"
+                class="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 transition text-sm">
+                指定を追加
+              </button>
+            </div>
+            <p id="assignmentAddMessage" class="mt-2 text-sm hidden"></p>
+          </div>
+          <h3 class="text-md font-semibold text-gray-800 mb-3">勤務指定一覧</h3>
+          <div class="overflow-x-auto border border-gray-200 rounded-lg">
+            <table class="min-w-full text-sm">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">日付</th>
+                  <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">職員名</th>
+                  <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">G</th>
+                  <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">シフト</th>
+                  <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">備考</th>
+                  <th class="px-4 py-2 text-center text-xs font-medium text-gray-500">操作</th>
+                </tr>
+              </thead>
+              <tbody id="assignmentTableBody" class="bg-white divide-y divide-gray-200">
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
     </main>
   </div>
 
@@ -599,12 +677,13 @@
         'staff-master': 'staffMasterView',
         'shift-master': 'shiftMasterView',
         'shift-management': 'shiftManagementView',
-        'shift-edit': 'shiftEditView'
+        'shift-edit': 'shiftEditView',
+        'shift-assignment': 'shiftAssignmentView'
       };
 
       const viewId = viewIdMap[viewName] || viewName;
 
-      const views = ['loginView', 'holidayRequestView', 'staffMasterView', 'shiftMasterView', 'shiftManagementView', 'shiftEditView'];
+      const views = ['loginView', 'holidayRequestView', 'staffMasterView', 'shiftMasterView', 'shiftManagementView', 'shiftEditView', 'shiftAssignmentView'];
       views.forEach(v => {
         document.getElementById(v).classList.add('hidden');
       });
@@ -634,6 +713,8 @@
           initShiftManagementView();
         } else if (viewId === 'shiftEditView') {
           initShiftEditView();
+        } else if (viewId === 'shiftAssignmentView') {
+          initShiftAssignmentView();
         }
       }
     }
@@ -1912,6 +1993,158 @@
           console.error(error);
         })
         .apiRunDiagnostics(year, month);
+    }
+
+    var assignmentStaffList = [];
+
+    function initShiftAssignmentView() {
+      var now = new Date();
+      document.getElementById('shiftAssignTargetMonth').value =
+        now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+
+      if (assignmentStaffList.length === 0) {
+        google.script.run
+          .withSuccessHandler(function(result) {
+            if (!result.success) return;
+            assignmentStaffList = result.data.filter(function(s) {
+              return s['有効'] === true || s['有効'] === 'TRUE';
+            });
+            var select = document.getElementById('assignStaffName');
+            assignmentStaffList.forEach(function(s) {
+              var opt = document.createElement('option');
+              opt.value = s['氏名'];
+              opt.textContent = s['氏名'] + ' (G' + s['グループ'] + ')';
+              select.appendChild(opt);
+            });
+          })
+          .withFailureHandler(function(e) { console.error(e); })
+          .apiGetAllStaff();
+      }
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (!result.success) return;
+          var select = document.getElementById('assignShiftName');
+          while (select.firstChild) { select.removeChild(select.firstChild); }
+          var defOpt = document.createElement('option');
+          defOpt.value = '';
+          defOpt.textContent = '-- 選択 --';
+          select.appendChild(defOpt);
+          result.shifts.filter(function(s) { return s['シフト名'] !== '休み'; }).forEach(function(s) {
+            var opt = document.createElement('option');
+            opt.value = s['シフト名'];
+            opt.textContent = s['シフト名'];
+            select.appendChild(opt);
+          });
+        })
+        .withFailureHandler(function(e) { console.error(e); })
+        .apiGetShiftMaster();
+    }
+
+    function loadShiftAssignments() {
+      var targetMonth = document.getElementById('shiftAssignTargetMonth').value;
+      if (!targetMonth) { alert('対象月を選択してください'); return; }
+      var parts = targetMonth.split('-').map(Number);
+      var year = parts[0], month = parts[1];
+
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          var tbody = document.getElementById('assignmentTableBody');
+          tbody.textContent = '';
+
+          if (!result.success || result.assignments.length === 0) {
+            var tr = document.createElement('tr');
+            var td = document.createElement('td');
+            td.colSpan = 6;
+            td.className = 'px-4 py-4 text-center text-gray-500';
+            td.textContent = !result.success
+              ? ('エラー: ' + result.message)
+              : (year + '年' + month + '月の勤務指定はありません');
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+            return;
+          }
+
+          var sorted = result.assignments.slice().sort(function(a, b) {
+            return (a['日付'] || '').localeCompare(b['日付'] || '');
+          });
+
+          sorted.forEach(function(a) {
+            var tr = document.createElement('tr');
+            [a['日付'], a['氏名'], a['グループ'], a['シフト名'], a['備考'] || '-'].forEach(function(val) {
+              var td = document.createElement('td');
+              td.className = 'px-4 py-2';
+              td.textContent = val;
+              tr.appendChild(td);
+            });
+            var tdBtn = document.createElement('td');
+            tdBtn.className = 'px-4 py-2 text-center';
+            var btn = document.createElement('button');
+            btn.className = 'bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200 text-xs';
+            btn.textContent = '削除';
+            btn.dataset.id = a['指定ID'];
+            btn.addEventListener('click', function() { deleteAssignment(this.dataset.id); });
+            tdBtn.appendChild(btn);
+            tr.appendChild(tdBtn);
+            tbody.appendChild(tr);
+          });
+        })
+        .withFailureHandler(function(e) { hideLoading(); console.error(e); })
+        .apiGetShiftAssignments(year, month);
+    }
+
+    function addShiftAssignment() {
+      var staffName = document.getElementById('assignStaffName').value;
+      var date = document.getElementById('assignDate').value;
+      var shiftName = document.getElementById('assignShiftName').value;
+      var notes = document.getElementById('assignNotes').value;
+      var msgEl = document.getElementById('assignmentAddMessage');
+
+      if (!staffName || !date || !shiftName) {
+        msgEl.textContent = '職員名、日付、シフトはすべて必須です';
+        msgEl.className = 'mt-2 text-sm text-red-600';
+        msgEl.classList.remove('hidden');
+        return;
+      }
+
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          msgEl.classList.remove('hidden');
+          msgEl.textContent = result.success ? '保存しました' : result.message;
+          msgEl.className = 'mt-2 text-sm ' + (result.success ? 'text-green-600' : 'text-red-600');
+          if (result.success) {
+            document.getElementById('assignStaffName').value = '';
+            document.getElementById('assignDate').value = '';
+            document.getElementById('assignShiftName').value = '';
+            document.getElementById('assignNotes').value = '';
+            loadShiftAssignments();
+          }
+        })
+        .withFailureHandler(function(e) {
+          hideLoading();
+          msgEl.textContent = 'エラーが発生しました';
+          msgEl.className = 'mt-2 text-sm text-red-600';
+          msgEl.classList.remove('hidden');
+          console.error(e);
+        })
+        .apiSaveShiftAssignment(staffName, date, shiftName, notes);
+    }
+
+    function deleteAssignment(assignmentId) {
+      if (!confirm('この勤務指定を削除しますか？')) return;
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          if (result.success) { loadShiftAssignments(); }
+          else { alert('削除エラー: ' + result.message); }
+        })
+        .withFailureHandler(function(e) { hideLoading(); console.error(e); })
+        .apiDeleteShiftAssignment(assignmentId);
     }
   </script>
 
