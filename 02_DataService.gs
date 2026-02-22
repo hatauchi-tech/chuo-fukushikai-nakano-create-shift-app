@@ -705,7 +705,7 @@ function updateConfirmedShiftFields(shiftId, fields) {
 // ============================================
 
 function initializeShiftAssignmentSheet() {
-  var sheet = getOrCreateSheet('T_勤務指定');
+  var sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_ASSIGNMENT);
   if (sheet.getLastRow() === 0) {
     var headers = ['指定ID', '氏名', 'グループ', '日付', 'シフト名', '登録者', '登録日時', '備考'];
     sheet.appendRow(headers);
@@ -716,62 +716,83 @@ function initializeShiftAssignmentSheet() {
 }
 
 function saveShiftAssignment(staffName, date, shiftName, registeredBy, notes) {
-  var sheet = initializeShiftAssignmentSheet();
-  var timestamp = new Date();
-  var dateObj = new Date(date);
-  deleteShiftAssignmentByNameAndDate(staffName, dateObj);
-  var assignmentId = 'ASSIGN_' + staffName + '_' +
-    Utilities.formatDate(dateObj, Session.getScriptTimeZone(), 'yyyyMMdd') + '_' + timestamp.getTime();
-  var staff = getStaffByName(staffName);
-  sheet.appendRow([assignmentId, staffName, staff ? staff['グループ'] : '',
-    dateObj, shiftName, registeredBy || '', timestamp, notes || '']);
-  return assignmentId;
+  try {
+    var sheet = initializeShiftAssignmentSheet();
+    var timestamp = new Date();
+    var dateObj = new Date(date);
+    deleteShiftAssignmentByNameAndDate(staffName, dateObj);
+    var assignmentId = 'ASSIGN_' + staffName + '_' +
+      Utilities.formatDate(dateObj, Session.getScriptTimeZone(), 'yyyyMMdd') + '_' + timestamp.getTime();
+    var staff = getStaffByName(staffName);
+    sheet.appendRow([assignmentId, staffName, staff ? staff['グループ'] : '',
+      dateObj, shiftName, registeredBy || '', timestamp, notes || '']);
+    return assignmentId;
+  } catch (e) {
+    console.error('勤務指定保存エラー:', e);
+    throw e;
+  }
 }
 
 function deleteShiftAssignmentByNameAndDate(staffName, dateObj) {
-  var sheet = getOrCreateSheet('T_勤務指定');
-  if (sheet.getLastRow() <= 1) return;
-  var data = sheet.getDataRange().getValues();
-  var targetStr = Utilities.formatDate(dateObj, Session.getScriptTimeZone(), 'yyyyMMdd');
-  for (var i = data.length - 1; i >= 1; i--) {
-    if (data[i][1] === staffName && data[i][3]) {
-      var rowStr = Utilities.formatDate(new Date(data[i][3]), Session.getScriptTimeZone(), 'yyyyMMdd');
-      if (rowStr === targetStr) { sheet.deleteRow(i + 1); }
+  try {
+    var sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_ASSIGNMENT);
+    if (sheet.getLastRow() <= 1) return;
+    var data = sheet.getDataRange().getValues();
+    var targetStr = Utilities.formatDate(dateObj, Session.getScriptTimeZone(), 'yyyyMMdd');
+    for (var i = data.length - 1; i >= 1; i--) {
+      if (data[i][1] === staffName && data[i][3]) {
+        var rowStr = Utilities.formatDate(new Date(data[i][3]), Session.getScriptTimeZone(), 'yyyyMMdd');
+        if (rowStr === targetStr) { sheet.deleteRow(i + 1); }
+      }
     }
+  } catch (e) {
+    console.error('勤務指定削除（氏名・日付）エラー:', e);
+    throw e;
   }
 }
 
 function deleteShiftAssignmentById(assignmentId) {
-  var sheet = getOrCreateSheet('T_勤務指定');
-  var data = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][0] === assignmentId) { sheet.deleteRow(i + 1); return true; }
+  try {
+    var sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_ASSIGNMENT);
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] === assignmentId) { sheet.deleteRow(i + 1); return true; }
+    }
+    return false;
+  } catch (e) {
+    console.error('勤務指定削除（ID）エラー:', e);
+    throw e;
   }
-  return false;
 }
 
 function getShiftAssignmentsByMonth(year, month) {
-  var sheet = getOrCreateSheet('T_勤務指定');
-  if (sheet.getLastRow() <= 1) return [];
-  var data = sheet.getDataRange().getValues();
-  var headers = data[0];
-  var assignments = [];
-  for (var i = 1; i < data.length; i++) {
-    var dateVal = data[i][3];
-    if (!dateVal) continue;
-    var date = new Date(dateVal);
-    if (date.getFullYear() == year && date.getMonth() + 1 == month) {
-      var assignment = {};
-      headers.forEach(function(header, idx) {
-        var value = data[i][idx];
-        assignment[header] = (value instanceof Date)
-          ? Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd')
-          : (value !== null && value !== undefined ? String(value) : '');
-      });
-      assignments.push(assignment);
+  try {
+    var sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_ASSIGNMENT);
+    if (sheet.getLastRow() <= 1) return [];
+    var data = sheet.getDataRange().getValues();
+    var headers = data[0];
+    var assignments = [];
+    for (var i = 1; i < data.length; i++) {
+      var dateVal = data[i][3];
+      if (!dateVal) continue;
+      var targetYM = String(year) + String(month).padStart(2, '0');
+      var rowYM = Utilities.formatDate(new Date(dateVal), Session.getScriptTimeZone(), 'yyyyMM');
+      if (rowYM === targetYM) {
+        var assignment = {};
+        headers.forEach(function(header, idx) {
+          var value = data[i][idx];
+          assignment[header] = (value instanceof Date)
+            ? Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+            : (value !== null && value !== undefined ? String(value) : '');
+        });
+        assignments.push(assignment);
+      }
     }
+    return assignments;
+  } catch (e) {
+    console.error('勤務指定取得エラー:', e);
+    return [];
   }
-  return assignments;
 }
 
 // ============================================
@@ -779,7 +800,7 @@ function getShiftAssignmentsByMonth(year, month) {
 // ============================================
 
 function initializeEventSheet() {
-  var sheet = getOrCreateSheet('M_イベント');
+  var sheet = getOrCreateSheet(SHEET_NAMES.EVENT);
   if (sheet.getLastRow() === 0) {
     var headers = ['イベントID', 'タイトル', '日付', '備考', '登録者', '登録日時'];
     sheet.appendRow(headers);
@@ -790,44 +811,60 @@ function initializeEventSheet() {
 }
 
 function saveEvent(title, date, notes, registeredBy) {
-  var sheet = initializeEventSheet();
-  var timestamp = new Date();
-  var dateObj = new Date(date);
-  var eventId = 'EVT_' + Utilities.formatDate(dateObj, Session.getScriptTimeZone(), 'yyyyMMdd') +
-    '_' + timestamp.getTime();
-  sheet.appendRow([eventId, title, dateObj, notes || '', registeredBy || '', timestamp]);
-  return eventId;
+  try {
+    var sheet = initializeEventSheet();
+    var timestamp = new Date();
+    var dateObj = new Date(date);
+    var eventId = 'EVT_' + Utilities.formatDate(dateObj, Session.getScriptTimeZone(), 'yyyyMMdd') +
+      '_' + timestamp.getTime();
+    sheet.appendRow([eventId, title, dateObj, notes || '', registeredBy || '', timestamp]);
+    return eventId;
+  } catch (e) {
+    console.error('イベント保存エラー:', e);
+    throw e;
+  }
 }
 
 function deleteEventById(eventId) {
-  var sheet = getOrCreateSheet('M_イベント');
-  var data = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][0] === eventId) { sheet.deleteRow(i + 1); return true; }
+  try {
+    var sheet = getOrCreateSheet(SHEET_NAMES.EVENT);
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] === eventId) { sheet.deleteRow(i + 1); return true; }
+    }
+    return false;
+  } catch (e) {
+    console.error('イベント削除エラー:', e);
+    throw e;
   }
-  return false;
 }
 
 function getEventsByMonth(year, month) {
-  var sheet = getOrCreateSheet('M_イベント');
-  if (sheet.getLastRow() <= 1) return [];
-  var data = sheet.getDataRange().getValues();
-  var headers = data[0];
-  var events = [];
-  for (var i = 1; i < data.length; i++) {
-    var dateVal = data[i][2];
-    if (!dateVal) continue;
-    var date = new Date(dateVal);
-    if (date.getFullYear() == year && date.getMonth() + 1 == month) {
-      var ev = {};
-      headers.forEach(function(header, idx) {
-        var value = data[i][idx];
-        ev[header] = (value instanceof Date)
-          ? Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd')
-          : (value !== null && value !== undefined ? String(value) : '');
-      });
-      events.push(ev);
+  try {
+    var sheet = getOrCreateSheet(SHEET_NAMES.EVENT);
+    if (sheet.getLastRow() <= 1) return [];
+    var data = sheet.getDataRange().getValues();
+    var headers = data[0];
+    var events = [];
+    for (var i = 1; i < data.length; i++) {
+      var dateVal = data[i][2];
+      if (!dateVal) continue;
+      var targetYM = String(year) + String(month).padStart(2, '0');
+      var rowYM = Utilities.formatDate(new Date(dateVal), Session.getScriptTimeZone(), 'yyyyMM');
+      if (rowYM === targetYM) {
+        var ev = {};
+        headers.forEach(function(header, idx) {
+          var value = data[i][idx];
+          ev[header] = (value instanceof Date)
+            ? Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+            : (value !== null && value !== undefined ? String(value) : '');
+        });
+        events.push(ev);
+      }
     }
+    return events;
+  } catch (e) {
+    console.error('イベント取得エラー:', e);
+    return [];
   }
-  return events;
 }
