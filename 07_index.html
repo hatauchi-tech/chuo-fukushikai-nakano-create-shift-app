@@ -873,7 +873,7 @@
               hideLoading();
               console.error(error);
             })
-            .apiGetHolidayRequest(currentSession.name, year, month);
+            .apiGetHolidayRequest(currentSession.staffId, year, month);
         })
         .withFailureHandler(function(error) {
           console.error('公休数取得エラー:', error);
@@ -913,7 +913,7 @@
               hideLoading();
               console.error(error);
             })
-            .apiGetHolidayRequest(currentSession.name, year, month);
+            .apiGetHolidayRequest(currentSession.staffId, year, month);
         })
         .apiGetConfig(configKey);
 
@@ -1267,7 +1267,7 @@
               showMessage('holidayMessage', 'エラーが発生しました', 'error');
               console.error(error);
             })
-            .apiSaveHolidayRequest(currentSession.name, requestList, notes);
+            .apiSaveHolidayRequest(currentSession.staffId, currentSession.name, requestList, notes);
         })
         .withFailureHandler(function(error) {
           hideLoading();
@@ -1301,7 +1301,7 @@
               showMessage('holidayMessage', 'エラーが発生しました', 'error');
               console.error(error);
             })
-            .apiSaveHolidayRequest(currentSession.name, requestList, notes);
+            .apiSaveHolidayRequest(currentSession.staffId, currentSession.name, requestList, notes);
         })
         .apiGetConfig(configKey);
     }
@@ -2167,7 +2167,8 @@
             var select = document.getElementById('assignStaffName');
             assignmentStaffList.forEach(function(s) {
               var opt = document.createElement('option');
-              opt.value = s['氏名'];
+              opt.value = s['職員ID'];
+              opt.dataset.name = s['氏名'];
               opt.textContent = s['氏名'] + ' (G' + s['グループ'] + ')';
               select.appendChild(opt);
             });
@@ -2251,13 +2252,17 @@
     }
 
     function addShiftAssignment() {
-      var staffName = document.getElementById('assignStaffName').value;
+      var staffSelect = document.getElementById('assignStaffName');
+      var staffId = staffSelect.value;
+      var staffName = staffSelect.options[staffSelect.selectedIndex]
+        ? (staffSelect.options[staffSelect.selectedIndex].dataset.name || staffSelect.value)
+        : staffSelect.value;
       var date = document.getElementById('assignDate').value;
       var shiftName = document.getElementById('assignShiftName').value;
       var notes = document.getElementById('assignNotes').value;
       var msgEl = document.getElementById('assignmentAddMessage');
 
-      if (!staffName || !date || !shiftName) {
+      if (!staffId || !date || !shiftName) {
         msgEl.textContent = '職員名、日付、シフトはすべて必須です';
         msgEl.className = 'mt-2 text-sm text-red-600';
         msgEl.classList.remove('hidden');
@@ -2286,7 +2291,7 @@
           msgEl.classList.remove('hidden');
           console.error(e);
         })
-        .apiSaveShiftAssignment(staffName, date, shiftName, notes);
+        .apiSaveShiftAssignment(staffId, staffName, date, shiftName, notes);
     }
 
     function deleteAssignment(assignmentId) {

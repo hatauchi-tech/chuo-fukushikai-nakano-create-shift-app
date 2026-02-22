@@ -80,6 +80,12 @@ function getStaffByName(name) {
   return allStaff.find(staff => staff['氏名'] === name);
 }
 
+// 職員IDで職員を検索
+function getStaffById(staffId) {
+  const allStaff = getAllStaff();
+  return allStaff.find(staff => String(staff['職員ID']) === String(staffId));
+}
+
 // グループ別に職員を取得
 function getStaffByGroup(groupNumber) {
   return getActiveStaff().filter(staff => staff['グループ'] == groupNumber);
@@ -287,25 +293,25 @@ function initializeHolidayRequestSheet() {
   const sheet = getOrCreateSheet(SHEET_NAMES.HOLIDAY_REQUEST);
 
   if (sheet.getLastRow() === 0) {
-    const headers = ['シフト休み希望ID', '氏名', '提出日時', '日付', '優先順位', '特記事項'];
+    const headers = ['シフト休み希望ID', '職員ID', '氏名', '提出日時', '日付', '優先順位', '特記事項'];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#d9ead3');
-    console.log('T_シフト休み希望シート初期化完了（優先順位列を追加）');
+    console.log('T_シフト休み希望シート初期化完了');
   }
 
   return sheet;
 }
 
 // 休み希望を保存
+// @param {string} staffId - 職員ID（S001等）
 // @param {string} name - 氏名
 // @param {Array} requestList - [{date: ISO文字列, priority: 数値}] の配列
 // @param {string} notes - 特記事項
-function saveHolidayRequest(name, requestList, notes = '') {
+function saveHolidayRequest(staffId, name, requestList, notes = '') {
   try {
     const sheet = initializeHolidayRequestSheet();
     const timestamp = new Date();
 
-    // requestListが空の場合はエラー
     if (!requestList || requestList.length === 0) {
       throw new Error('休み希望データが空です');
     }
@@ -313,17 +319,17 @@ function saveHolidayRequest(name, requestList, notes = '') {
     // 既存の該当月データを削除（上書き保存）
     const firstDate = new Date(requestList[0].date);
     const yearMonth = Utilities.formatDate(firstDate, Session.getScriptTimeZone(), 'yyyyMM');
-    deleteHolidayRequestByNameAndMonth(name, yearMonth);
+    deleteHolidayRequestByStaffIdAndMonth(staffId, yearMonth);
 
     // 新規保存（日付と優先順位のペア）
     requestList.forEach(req => {
       const date = new Date(req.date);
-      const priority = req.priority || 1;  // デフォルト第1希望
-      const requestId = `REQ_${name}_${Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyyMMdd')}_${timestamp.getTime()}`;
-      sheet.appendRow([requestId, name, timestamp, date, priority, notes]);
+      const priority = req.priority || 1;
+      const requestId = `REQ_${staffId}_${Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyyMMdd')}_${timestamp.getTime()}`;
+      sheet.appendRow([requestId, staffId, name, timestamp, date, priority, notes]);
     });
 
-    console.log(`休み希望保存: ${name} (${requestList.length}件)`);
+    console.log(`休み希望保存: ${staffId}(${name}) (${requestList.length}件)`);
     return true;
   } catch (e) {
     console.error('休み希望保存エラー:', e);
@@ -331,19 +337,21 @@ function saveHolidayRequest(name, requestList, notes = '') {
   }
 }
 
-// 氏名と月で休み希望を削除
-function deleteHolidayRequestByNameAndMonth(name, yearMonth) {
+// 職員IDと月で休み希望を削除
+function deleteHolidayRequestByStaffIdAndMonth(staffId, yearMonth) {
   try {
     const sheet = getOrCreateSheet(SHEET_NAMES.HOLIDAY_REQUEST);
     const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return;
+    const headers = data[0];
+    const staffIdIdx = headers.indexOf('職員ID');
+    const dateIdx = headers.indexOf('日付');
 
     const rowsToDelete = [];
-
     for (let i = data.length - 1; i >= 1; i--) {
-      const rowName = data[i][1];
-      const rowDate = data[i][3];
-
-      if (rowName === name && rowDate) {
+      const rowStaffId = staffIdIdx >= 0 ? data[i][staffIdIdx] : data[i][1];
+      const rowDate = dateIdx >= 0 ? data[i][dateIdx] : data[i][3];
+      if (String(rowStaffId) === String(staffId) && rowDate) {
         const rowYearMonth = Utilities.formatDate(new Date(rowDate), Session.getScriptTimeZone(), 'yyyyMM');
         if (rowYearMonth === yearMonth) {
           rowsToDelete.push(i + 1);
@@ -351,45 +359,47 @@ function deleteHolidayRequestByNameAndMonth(name, yearMonth) {
       }
     }
 
-    // 逆順で削除（行番号のずれを防ぐ）
-    rowsToDelete.reverse().forEach(rowIndex => {
-      sheet.deleteRow(rowIndex);
-    });
-
+    rowsToDelete.reverse().forEach(rowIndex => sheet.deleteRow(rowIndex));
     if (rowsToDelete.length > 0) {
-      console.log(`休み希望削除: ${name} ${yearMonth} (${rowsToDelete.length}件)`);
+      console.log(`休み希望削除: ${staffId} ${yearMonth} (${rowsToDelete.length}件)`);
     }
   } catch (e) {
     console.error('休み希望削除エラー:', e);
   }
 }
 
-// 氏名と月で休み希望を取得
-function getHolidayRequestByNameAndMonth(name, year, month) {
+// 職員IDと月で休み希望を取得
+function getHolidayRequestByStaffIdAndMonth(staffId, year, month) {
   try {
     const sheet = getOrCreateSheet(SHEET_NAMES.HOLIDAY_REQUEST);
     const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return [];
+    const headers = data[0];
+    const staffIdIdx = headers.indexOf('職員ID');
+    const dateIdx = headers.indexOf('日付');
+    const priorityIdx = headers.indexOf('優先順位');
+    const notesIdx = headers.indexOf('特記事項');
 
     const requests = [];
-
     for (let i = 1; i < data.length; i++) {
-      const rowName = data[i][1];
-      const rowDate = data[i][3];
-      const rowPriority = data[i][4];  // 優先順位列を追加
+      const rowStaffId = staffIdIdx >= 0 ? data[i][staffIdIdx] : data[i][1];
+      const rowDate = dateIdx >= 0 ? data[i][dateIdx] : data[i][3];
+      const rowPriority = priorityIdx >= 0 ? data[i][priorityIdx] : data[i][4];
+      const rowNotes = notesIdx >= 0 ? data[i][notesIdx] : data[i][5];
 
-      if (rowName === name && rowDate) {
+      if (String(rowStaffId) === String(staffId) && rowDate) {
         const date = new Date(rowDate);
         if (date.getFullYear() == year && date.getMonth() + 1 == month) {
           requests.push({
-            '日付': date.toISOString(),  // ISO文字列に変換
-            '優先順位': rowPriority || 1,  // 優先順位（デフォルト1）
-            '特記事項': data[i][5] || ''  // インデックスを5に変更
+            '日付': date.toISOString(),
+            '優先順位': rowPriority || 1,
+            '特記事項': rowNotes || ''
           });
         }
       }
     }
 
-    console.log(`休み希望取得: ${name} ${year}/${month} (${requests.length}件)`);
+    console.log(`休み希望取得: ${staffId} ${year}/${month} (${requests.length}件)`);
     return requests;
   } catch (e) {
     console.error('休み希望取得エラー:', e);
@@ -407,7 +417,7 @@ function initializeConfirmedShiftSheet() {
 
   if (sheet.getLastRow() === 0) {
     const headers = [
-      '確定シフトID', '氏名', 'グループ', 'シフト名',
+      '確定シフトID', '職員ID', '氏名', 'グループ', 'シフト名',
       '勤務開始日', '開始時間', '勤務終了日', '終了時間',
       '登録日時', 'カレンダーイベントID'
     ];
@@ -424,11 +434,13 @@ function saveConfirmedShift(shiftData) {
   try {
     const sheet = initializeConfirmedShiftSheet();
     const timestamp = new Date();
+    const staffId = shiftData['職員ID'] || '';
 
-    const shiftId = `CONFIRMED_${shiftData['氏名']}_${Utilities.formatDate(shiftData['勤務開始日'], Session.getScriptTimeZone(), 'yyyyMMdd')}_${timestamp.getTime()}`;
+    const shiftId = `CONFIRMED_${staffId || shiftData['氏名']}_${Utilities.formatDate(shiftData['勤務開始日'], Session.getScriptTimeZone(), 'yyyyMMdd')}_${timestamp.getTime()}`;
 
     const rowData = [
       shiftId,
+      staffId,
       shiftData['氏名'],
       shiftData['グループ'],
       shiftData['シフト名'],
@@ -441,7 +453,7 @@ function saveConfirmedShift(shiftData) {
     ];
 
     sheet.appendRow(rowData);
-    console.log(`確定シフト保存: ${shiftData['氏名']} ${Utilities.formatDate(shiftData['勤務開始日'], Session.getScriptTimeZone(), 'yyyy/MM/dd')} - ${Utilities.formatDate(shiftData['勤務終了日'], Session.getScriptTimeZone(), 'yyyy/MM/dd')}`);
+    console.log(`確定シフト保存: ${staffId}(${shiftData['氏名']}) ${Utilities.formatDate(shiftData['勤務開始日'], Session.getScriptTimeZone(), 'yyyy/MM/dd')}`);
 
     return shiftId;
   } catch (e) {
@@ -455,12 +467,13 @@ function deleteConfirmedShiftByMonth(year, month) {
   try {
     const sheet = getOrCreateSheet(SHEET_NAMES.CONFIRMED_SHIFT);
     const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return 0;
+    const headers = data[0];
+    const startDateIdx = headers.indexOf('勤務開始日');
 
     const rowsToDelete = [];
-
     for (let i = data.length - 1; i >= 1; i--) {
-      const startDate = data[i][4];  // 勤務開始日（インデックス4）
-
+      const startDate = data[i][startDateIdx];
       if (startDate) {
         const date = new Date(startDate);
         if (date.getFullYear() == year && date.getMonth() + 1 == month) {
@@ -469,11 +482,7 @@ function deleteConfirmedShiftByMonth(year, month) {
       }
     }
 
-    // 逆順で削除（行番号のずれを防ぐ）
-    rowsToDelete.reverse().forEach(rowIndex => {
-      sheet.deleteRow(rowIndex);
-    });
-
+    rowsToDelete.reverse().forEach(rowIndex => sheet.deleteRow(rowIndex));
     console.log(`確定シフト削除: ${year}年${month}月 (${rowsToDelete.length}件)`);
     return rowsToDelete.length;
   } catch (e) {
@@ -487,13 +496,15 @@ function deleteConfirmedShiftByMonthAndGroup(year, month, selectedGroups) {
   try {
     const sheet = getOrCreateSheet(SHEET_NAMES.CONFIRMED_SHIFT);
     const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return 0;
+    const headers = data[0];
+    const groupIdx = headers.indexOf('グループ');
+    const startDateIdx = headers.indexOf('勤務開始日');
 
     const rowsToDelete = [];
-
     for (let i = data.length - 1; i >= 1; i--) {
-      const group = data[i][2];  // グループ（インデックス2）
-      const startDate = data[i][4];  // 勤務開始日（インデックス4）
-
+      const group = data[i][groupIdx];
+      const startDate = data[i][startDateIdx];
       if (startDate && selectedGroups.includes(parseInt(group))) {
         const date = new Date(startDate);
         if (date.getFullYear() == year && date.getMonth() + 1 == month) {
@@ -502,11 +513,7 @@ function deleteConfirmedShiftByMonthAndGroup(year, month, selectedGroups) {
       }
     }
 
-    // 逆順で削除（行番号のずれを防ぐ）
-    rowsToDelete.reverse().forEach(rowIndex => {
-      sheet.deleteRow(rowIndex);
-    });
-
+    rowsToDelete.reverse().forEach(rowIndex => sheet.deleteRow(rowIndex));
     console.log(`確定シフト削除（グループ選択）: ${year}年${month}月 グループ${selectedGroups.join(',')} (${rowsToDelete.length}件)`);
     return rowsToDelete.length;
   } catch (e) {
@@ -525,15 +532,16 @@ function saveConfirmedShiftsBulk(shiftsData) {
       return [];
     }
 
-    // データテーブルを作成
     const rows = [];
     const savedShifts = [];
 
     shiftsData.forEach(shiftData => {
-      const shiftId = `CONFIRMED_${shiftData['氏名']}_${Utilities.formatDate(shiftData['勤務開始日'], Session.getScriptTimeZone(), 'yyyyMMdd')}_${timestamp.getTime()}`;
+      const staffId = shiftData['職員ID'] || '';
+      const shiftId = `CONFIRMED_${staffId || shiftData['氏名']}_${Utilities.formatDate(shiftData['勤務開始日'], Session.getScriptTimeZone(), 'yyyyMMdd')}_${timestamp.getTime()}`;
 
       const row = [
         shiftId,
+        staffId,
         shiftData['氏名'],
         shiftData['グループ'],
         shiftData['シフト名'],
@@ -547,9 +555,9 @@ function saveConfirmedShiftsBulk(shiftsData) {
 
       rows.push(row);
 
-      // 返却用データ
       savedShifts.push({
         shiftId: shiftId,
+        '職員ID': staffId,
         '氏名': shiftData['氏名'],
         'グループ': shiftData['グループ'],
         'シフト名': shiftData['シフト名'],
@@ -561,7 +569,6 @@ function saveConfirmedShiftsBulk(shiftsData) {
       });
     });
 
-    // 配列一括貼り付け（高速化）
     if (rows.length > 0) {
       const lastRow = sheet.getLastRow();
       sheet.getRange(lastRow + 1, 1, rows.length, rows[0].length).setValues(rows);
@@ -581,10 +588,13 @@ function updateCalendarEventId(shiftId, eventId) {
   try {
     const sheet = getOrCreateSheet(SHEET_NAMES.CONFIRMED_SHIFT);
     const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return false;
+    const headers = data[0];
+    const calIdColIdx = headers.indexOf('カレンダーイベントID');
 
     for (let i = 1; i < data.length; i++) {
       if (data[i][0] === shiftId) {
-        sheet.getRange(i + 1, 10).setValue(eventId);  // 10列目（インデックス9）に変更
+        sheet.getRange(i + 1, calIdColIdx + 1).setValue(eventId);
         console.log(`イベントID更新: ${shiftId} -> ${eventId}`);
         return true;
       }
@@ -606,11 +616,12 @@ function getConfirmedShiftsByMonth(year, month) {
     if (data.length <= 1) return [];
 
     const headers = data[0];
+    const startDateIdx = headers.indexOf('勤務開始日');
     const shifts = [];
 
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
-      const startDate = row[4];  // 勤務開始日（インデックス4）
+      const startDate = row[startDateIdx];
 
       if (startDate) {
         const date = new Date(startDate);
@@ -735,7 +746,7 @@ function initializeShiftAssignmentSheet() {
   var sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_ASSIGNMENT);
   if (sheet.getLastRow() === 0) {
     // 「シフトID」列にはキー（例: SHIFT_NIKKIN）を格納。シフト名称変更に対応
-    var headers = ['指定ID', '氏名', 'グループ', '日付', 'シフトID', '登録者', '登録日時', '備考'];
+    var headers = ['指定ID', '職員ID', '氏名', 'グループ', '日付', 'シフトID', '登録者', '登録日時', '備考'];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#ffe0b2');
     console.log('T_勤務指定シート初期化完了');
@@ -743,16 +754,16 @@ function initializeShiftAssignmentSheet() {
   return sheet;
 }
 
-function saveShiftAssignment(staffName, date, shiftId, registeredBy, notes) {
+function saveShiftAssignment(staffId, staffName, date, shiftId, registeredBy, notes) {
   try {
     var sheet = initializeShiftAssignmentSheet();
     var timestamp = new Date();
     var dateObj = new Date(date);
-    deleteShiftAssignmentByNameAndDate(staffName, dateObj);
-    var assignmentId = 'ASSIGN_' + staffName + '_' +
+    deleteShiftAssignmentByStaffIdAndDate(staffId, dateObj);
+    var assignmentId = 'ASSIGN_' + staffId + '_' +
       Utilities.formatDate(dateObj, Session.getScriptTimeZone(), 'yyyyMMdd') + '_' + timestamp.getTime();
-    var staff = getStaffByName(staffName);
-    sheet.appendRow([assignmentId, staffName, staff ? staff['グループ'] : '',
+    var staff = getStaffById(staffId) || getStaffByName(staffName);
+    sheet.appendRow([assignmentId, staffId, staffName, staff ? staff['グループ'] : '',
       dateObj, shiftId, registeredBy || '', timestamp, notes || '']);
     return assignmentId;
   } catch (e) {
@@ -761,20 +772,25 @@ function saveShiftAssignment(staffName, date, shiftId, registeredBy, notes) {
   }
 }
 
-function deleteShiftAssignmentByNameAndDate(staffName, dateObj) {
+function deleteShiftAssignmentByStaffIdAndDate(staffId, dateObj) {
   try {
     var sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_ASSIGNMENT);
     if (sheet.getLastRow() <= 1) return;
     var data = sheet.getDataRange().getValues();
+    var headers = data[0];
+    var staffIdIdx = headers.indexOf('職員ID');
+    var dateIdx = headers.indexOf('日付');
     var targetStr = Utilities.formatDate(dateObj, Session.getScriptTimeZone(), 'yyyyMMdd');
     for (var i = data.length - 1; i >= 1; i--) {
-      if (data[i][1] === staffName && data[i][3]) {
-        var rowStr = Utilities.formatDate(new Date(data[i][3]), Session.getScriptTimeZone(), 'yyyyMMdd');
+      var rowStaffId = staffIdIdx >= 0 ? data[i][staffIdIdx] : data[i][1];
+      var rowDate = dateIdx >= 0 ? data[i][dateIdx] : data[i][3];
+      if (String(rowStaffId) === String(staffId) && rowDate) {
+        var rowStr = Utilities.formatDate(new Date(rowDate), Session.getScriptTimeZone(), 'yyyyMMdd');
         if (rowStr === targetStr) { sheet.deleteRow(i + 1); }
       }
     }
   } catch (e) {
-    console.error('勤務指定削除（氏名・日付）エラー:', e);
+    console.error('勤務指定削除（職員ID・日付）エラー:', e);
     throw e;
   }
 }

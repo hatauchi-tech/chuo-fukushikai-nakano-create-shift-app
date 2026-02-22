@@ -464,13 +464,14 @@ function apiDeleteShiftMaster(shiftId) {
 
 /**
  * 休み希望保存
+ * @param {string} staffId - 職員ID（S001等）
  * @param {string} name - 氏名
  * @param {Array} requestList - [{date: ISO文字列, priority: 数値}] の配列
  * @param {string} notes - 特記事項
  */
-function apiSaveHolidayRequest(name, requestList, notes) {
+function apiSaveHolidayRequest(staffId, name, requestList, notes) {
   try {
-    saveHolidayRequest(name, requestList, notes);
+    saveHolidayRequest(staffId, name, requestList, notes);
     return { success: true, message: '休み希望を保存しました' };
   } catch (e) {
     console.error('休み希望保存エラー:', e);
@@ -480,10 +481,11 @@ function apiSaveHolidayRequest(name, requestList, notes) {
 
 /**
  * 休み希望取得
+ * @param {string} staffId - 職員ID（S001等）
  */
-function apiGetHolidayRequest(name, year, month) {
+function apiGetHolidayRequest(staffId, year, month) {
   try {
-    const data = getHolidayRequestByNameAndMonth(name, year, month);
+    const data = getHolidayRequestByStaffIdAndMonth(staffId, year, month);
     return { success: true, data: data };
   } catch (e) {
     console.error('休み希望取得エラー:', e);
@@ -713,8 +715,11 @@ function apiGetShiftDataByGroup(year, month, group) {
         shifts[d] = { shiftName: '休み', startTime: '', endTime: '' };
       }
 
-      // 確定シフトデータを上書き
-      confirmedShifts.filter(s => s['氏名'] === staffName).forEach(shift => {
+      // 確定シフトデータを上書き（職員IDで照合、フォールバックとして氏名も使用）
+      const staffId = staff['職員ID'];
+      confirmedShifts.filter(s =>
+        (staffId && s['職員ID'] === staffId) || (!s['職員ID'] && s['氏名'] === staffName)
+      ).forEach(shift => {
         const startDate = new Date(shift['勤務開始日']);
         if (startDate.getMonth() + 1 === month && startDate.getFullYear() === year) {
           const day = startDate.getDate();
@@ -900,8 +905,11 @@ function apiUpdateShift(staffName, year, month, day, shiftName) {
 
     // 既存のシフトを検索
     const existingShifts = getConfirmedShiftsByMonth(year, month);
+    // staffIdで照合、フォールバックとして氏名も使用
+    const staffObj = getStaffByName(staffName);
+    const staffId = staffObj ? staffObj['職員ID'] : '';
     const existing = existingShifts.find(s =>
-      s['氏名'] === staffName &&
+      ((staffId && s['職員ID'] === staffId) || (!s['職員ID'] && s['氏名'] === staffName)) &&
       new Date(s['勤務開始日']).getDate() === day
     );
 
@@ -912,9 +920,10 @@ function apiUpdateShift(staffName, year, month, day, shiftName) {
       }
     } else {
       // 職員情報を取得
-      const staff = getStaffByName(staffName);
+      const staff = staffObj;
 
       const shiftData = {
+        '職員ID': staffId,
         '氏名': staffName,
         'グループ': staff ? staff['グループ'] : '',
         'シフト名': shiftName,
@@ -967,7 +976,8 @@ function apiConfirmShiftsAndRegisterCalendar(year, month, group) {
     for (const shift of targetShifts) {
       if (shift['シフト名'] === '休み' || !shift['シフト名']) continue;
 
-      const staff = getStaffByName(shift['氏名']);
+      // 職員IDで検索、フォールバックとして氏名も使用
+      const staff = (shift['職員ID'] ? getStaffById(shift['職員ID']) : null) || getStaffByName(shift['氏名']);
       if (!staff || !staff['カレンダーID']) continue;
 
       const shiftInfo = getShiftByName(shift['シフト名']);
@@ -1032,19 +1042,23 @@ function apiRunDiagnostics(year, month) {
     var daysInMonth = new Date(year, month, 0).getDate();
     var allStaff = getActiveStaff();
 
-    // 職員ごとのシフトマップを構築
+    // 職員ごとのシフトマップを構築（職員IDをキーとして使用）
     var staffShiftMap = {};
     allStaff.forEach(function(staff) {
-      staffShiftMap[staff['氏名']] = { staffInfo: staff, shifts: {} };
+      var key = staff['職員ID'] || staff['氏名'];
+      staffShiftMap[key] = { staffInfo: staff, shifts: {} };
       for (var d = 1; d <= daysInMonth; d++) {
-        staffShiftMap[staff['氏名']].shifts[d] = '休み';
+        staffShiftMap[key].shifts[d] = '休み';
       }
     });
     confirmedShifts.forEach(function(shift) {
       var day = new Date(shift['勤務開始日']).getDate();
-      var name = shift['氏名'];
-      if (staffShiftMap[name]) {
-        staffShiftMap[name].shifts[day] = shift['シフト名'] || '休み';
+      // 職員IDで照合、フォールバックとして氏名も使用
+      var key = shift['職員ID'] && staffShiftMap[shift['職員ID']]
+        ? shift['職員ID']
+        : shift['氏名'];
+      if (staffShiftMap[key]) {
+        staffShiftMap[key].shifts[day] = shift['シフト名'] || '休み';
       }
     });
 
@@ -1168,7 +1182,11 @@ function apiGetMyShiftAssignments(year, month) {
     if (!session) return { success: true, assignments: [] };
     var all = getShiftAssignmentsByMonth(year, month);
     var shiftMap = getShiftMasterMap().byKey;
-    var mine = all.filter(function(a) { return a['氏名'] === session.name; });
+    // staffIdで照合、フォールバックとして氏名も使用
+    var mine = all.filter(function(a) {
+      return (session.staffId && a['職員ID'] === session.staffId) ||
+             (!a['職員ID'] && a['氏名'] === session.name);
+    });
     mine.forEach(function(a) {
       a['シフト名'] = shiftMap[a['シフトID']] || a['シフトID'];
     });
@@ -1176,11 +1194,11 @@ function apiGetMyShiftAssignments(year, month) {
   } catch (e) { return { success: false, message: e.message }; }
 }
 
-function apiSaveShiftAssignment(staffName, date, shiftId, notes) {
+function apiSaveShiftAssignment(staffId, staffName, date, shiftId, notes) {
   try {
     var session = getSession();
     if (!session || !session.isAdmin) return { success: false, message: '管理者権限が必要です' };
-    var id = saveShiftAssignment(staffName, date, shiftId, session.name, notes);
+    var id = saveShiftAssignment(staffId, staffName, date, shiftId, session.name, notes);
     return { success: true, assignmentId: id, message: '勤務指定を保存しました' };
   } catch (e) { return { success: false, message: e.message }; }
 }

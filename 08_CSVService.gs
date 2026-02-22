@@ -9,12 +9,12 @@
 
 const CSV_SCHEMA = {
   HOLIDAY_REQUEST: {
-    headers: ['氏名', 'グループ', '日付', '優先順位', '特記事項'],
-    required: ['氏名', 'グループ', '日付', '優先順位']
+    headers: ['職員ID', '氏名', 'グループ', '日付', '優先順位', '特記事項'],
+    required: ['職員ID', '氏名', 'グループ', '日付', '優先順位']
   },
   SHIFT_RESULT: {
     // Python出力形式に合わせたヘッダー
-    headers: ['確定シフトID', '氏名', 'グループ', 'シフト名', '勤務開始日', '開始時間', '勤務終了日', '終了時間', '登録日時', 'カレンダーイベントID'],
+    headers: ['確定シフトID', '職員ID', '氏名', 'グループ', 'シフト名', '勤務開始日', '開始時間', '勤務終了日', '終了時間', '登録日時', 'カレンダーイベントID'],
     required: ['氏名', 'グループ', 'シフト名', '勤務開始日']
   },
   STAFF: {
@@ -58,10 +58,13 @@ function exportHolidayRequestToCSV(year, month) {
 
     // 職員データを最初に1回だけ取得してキャッシュ（パフォーマンス改善）
     const allStaff = getAllStaff();
-    const staffMap = {};
+    const staffMapByName = {};
     allStaff.forEach(staff => {
-      staffMap[staff['氏名']] = staff;
+      staffMapByName[staff['氏名']] = staff;
     });
+
+    // シートのヘッダーから職員ID列インデックスを動的取得
+    const staffIdIndex = headers.indexOf('職員ID');
 
     // 対象月のデータをフィルタ
     const filteredRows = [];
@@ -71,10 +74,15 @@ function exportHolidayRequestToCSV(year, month) {
 
       if (date.getFullYear() === year && date.getMonth() + 1 === month) {
         // キャッシュからグループ情報を取得
-        const staff = staffMap[row[nameIndex]];
+        const staff = staffMapByName[row[nameIndex]];
         const group = staff ? staff['グループ'] : '';
+        // 職員IDを取得（シートに列がある場合はそこから、なければstaffMapから）
+        const staffId = (staffIdIndex >= 0 && row[staffIdIndex])
+          ? row[staffIdIndex]
+          : (staff ? staff['職員ID'] : '');
 
         filteredRows.push([
+          staffId,                                                  // 職員ID
           row[nameIndex],                                           // 氏名
           group,                                                    // グループ
           Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd'), // 日付
@@ -221,11 +229,14 @@ function exportSettingsToCSV(year, month) {
     }
 
     // 勤務指定データを設定として追加（Python側で ASSIGN_ プレフィクスで識別）
+    // キー形式: ASSIGN_職員ID_YYYYMMDD（職員ID管理。名前変更に影響されない）
     // 設定値はシフトID（キー）で出力。シフト名称変更があってもキーは不変
     var assignments = getShiftAssignmentsByMonth(year, month);
     assignments.forEach(function(assign) {
       var dateStr = assign['日付'].replace(/-/g, '');
-      settings.push(['ASSIGN_' + assign['氏名'] + '_' + dateStr, assign['シフトID']]);
+      // 職員IDが格納されている場合はそれを使用、フォールバックとして氏名
+      var staffKey = assign['職員ID'] || assign['氏名'];
+      settings.push(['ASSIGN_' + staffKey + '_' + dateStr, assign['シフトID']]);
     });
     if (assignments.length > 0) {
       console.log('勤務指定データをM_設定CSVに追加: ' + assignments.length + '件');
@@ -379,11 +390,16 @@ function importShiftResultFromCSV(fileId) {
 
     // 職員データを最初に1回だけ取得してキャッシュ（パフォーマンス改善）
     const allStaff = getAllStaff();
-    const staffMap = {};
+    const staffMapById = {};
+    const staffMapByName = {};
     allStaff.forEach(staff => {
-      staffMap[staff['氏名']] = staff;
+      if (staff['職員ID']) staffMapById[staff['職員ID']] = staff;
+      staffMapByName[staff['氏名']] = staff;
     });
     console.log(`職員キャッシュ作成: ${allStaff.length}件`);
+
+    // CSVに職員IDカラムがあれば取得
+    const staffIdCsvIndex = headers.indexOf('職員ID');
 
     // 一括保存用の配列
     const shiftsToSave = [];
@@ -405,17 +421,21 @@ function importShiftResultFromCSV(fileId) {
       if (row[endDateIndex] && row[endDateIndex] !== '') {
         endDate = new Date(row[endDateIndex]);
       } else {
-        // 終了日がない場合は開始日と同じ
         endDate = new Date(startDate);
         if (endTime && startTime && endTime < startTime) {
           endDate.setDate(endDate.getDate() + 1);
         }
       }
 
-      // キャッシュから職員情報を取得（スプレッドシートアクセスなし）
-      const staff = staffMap[row[nameIndex]];
+      // キャッシュから職員情報を取得（職員IDで検索、フォールバックとして氏名）
+      const csvStaffId = staffIdCsvIndex >= 0 ? row[staffIdCsvIndex] : '';
+      const staff = (csvStaffId && staffMapById[csvStaffId])
+        ? staffMapById[csvStaffId]
+        : staffMapByName[row[nameIndex]];
+      const staffId = csvStaffId || (staff ? staff['職員ID'] : '');
 
       shiftsToSave.push({
+        '職員ID': staffId,
         '氏名': row[nameIndex],
         'グループ': row[groupIndex],
         'シフト名': shiftName,
