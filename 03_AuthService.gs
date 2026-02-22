@@ -49,6 +49,9 @@ function authenticateUser(loginId, password) {
       isAdmin: isAdminRole(staff['役職'])
     };
 
+    // サーバー側APIから参照できるようUserPropertiesに保存
+    setSession(session);
+
     return {
       success: true,
       session: session,
