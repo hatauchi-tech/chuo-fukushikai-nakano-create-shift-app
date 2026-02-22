@@ -530,6 +530,26 @@
             </div>
           </div>
 
+          <!-- 診断レポートパネル -->
+          <div id="diagnosticsPanel" class="hidden mt-6">
+            <div class="bg-white border border-gray-200 rounded-lg p-6">
+              <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-800">診断レポート</h3>
+                <button onclick="runDiagnostics()"
+                  class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition text-sm">
+                  診断を実行
+                </button>
+              </div>
+              <div id="diagnosticsResult" class="hidden">
+                <div id="diagnosticsSummary" class="flex gap-4 mb-4"></div>
+                <div id="diagnosticsList"></div>
+              </div>
+              <p id="diagnosticsEmpty" class="text-gray-500 text-sm">
+                「診断を実行」ボタンを押すと、現在のシフトデータのルール違反を確認できます。
+              </p>
+            </div>
+          </div>
+
           <div id="shiftEditMessage" class="mt-4 hidden"></div>
         </div>
       </div>
@@ -538,6 +558,16 @@
   </div>
 
   <script>
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     // グローバル変数
     let currentSession = null;
     // 選択された休み希望: [{day: 数値, priority: 数値}]
@@ -1625,6 +1655,9 @@
             renderShiftEditTable(result);
             renderShiftStatsTable(result);
             document.getElementById('shiftEditTableContainer').classList.remove('hidden');
+            document.getElementById('diagnosticsPanel').classList.remove('hidden');
+            document.getElementById('diagnosticsResult').classList.add('hidden');
+            document.getElementById('diagnosticsEmpty').classList.remove('hidden');
           } else if (result) {
             alert('エラー: ' + result.message);
           } else {
@@ -1793,6 +1826,92 @@
           console.error(error);
         })
         .apiConfirmShiftsAndRegisterCalendar(year, month, group);
+    }
+
+    function runDiagnostics() {
+      var targetMonth = document.getElementById('shiftEditTargetMonth').value;
+      if (!targetMonth) { alert('対象月を選択してください'); return; }
+      var parts = targetMonth.split('-').map(Number);
+      var year = parts[0], month = parts[1];
+
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          if (!result.success) { alert('エラー: ' + result.message); return; }
+
+          document.getElementById('diagnosticsEmpty').classList.add('hidden');
+          document.getElementById('diagnosticsResult').classList.remove('hidden');
+
+          var summaryEl = document.getElementById('diagnosticsSummary');
+          summaryEl.textContent = '';
+
+          if (!result.hasData) {
+            summaryEl.textContent = '確定シフトデータがありません';
+            document.getElementById('diagnosticsList').textContent = '';
+            return;
+          }
+
+          // サマリーバッジをDOM操作で構築
+          var errSpan = document.createElement('span');
+          errSpan.className = 'px-3 py-1 rounded-full font-semibold ' +
+            (result.summary.error > 0 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800');
+          errSpan.textContent = 'エラー: ' + result.summary.error + '件';
+          summaryEl.appendChild(errSpan);
+
+          var warnSpan = document.createElement('span');
+          warnSpan.className = 'px-3 py-1 rounded-full font-semibold ' +
+            (result.summary.warning > 0 ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800');
+          warnSpan.textContent = '警告: ' + result.summary.warning + '件';
+          summaryEl.appendChild(warnSpan);
+
+          var listEl = document.getElementById('diagnosticsList');
+          listEl.textContent = '';
+
+          if (result.summary.total === 0) {
+            listEl.textContent = 'ルール違反は見つかりませんでした';
+            return;
+          }
+
+          // タイプ別グループ化してDOM構築
+          var grouped = {};
+          result.violations.concat(result.warnings).forEach(function(v) {
+            if (!grouped[v.type]) grouped[v.type] = [];
+            grouped[v.type].push(v);
+          });
+
+          Object.keys(grouped).forEach(function(type) {
+            var items = grouped[type];
+            var isError = items[0].level === 'error';
+
+            var wrapper = document.createElement('div');
+            wrapper.className = 'mb-4 border rounded-lg overflow-hidden ' +
+              (isError ? 'border-red-200' : 'border-yellow-200');
+
+            var header = document.createElement('div');
+            header.className = 'px-4 py-2 font-semibold ' +
+              (isError ? 'bg-red-50 text-red-800' : 'bg-yellow-50 text-yellow-800');
+            header.textContent = (isError ? 'エラー: ' : '警告: ') + type + ' (' + items.length + '件)';
+            wrapper.appendChild(header);
+
+            var ul = document.createElement('ul');
+            ul.className = 'divide-y divide-gray-100';
+            items.forEach(function(item) {
+              var li = document.createElement('li');
+              li.className = 'px-4 py-2 text-sm text-gray-700';
+              li.textContent = item.message;
+              ul.appendChild(li);
+            });
+            wrapper.appendChild(ul);
+            listEl.appendChild(wrapper);
+          });
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          alert('診断の実行に失敗しました');
+          console.error(error);
+        })
+        .apiRunDiagnostics(year, month);
     }
   </script>
 
