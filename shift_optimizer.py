@@ -11,7 +11,8 @@
 - 連勤制限: 連続5日まで（6連勤以上は不可）
 - インターバル: 遅出→翌日早出は禁止
 - 夜勤明けルール: 夜勤→休→休（翌日・翌々日は休み必須）
-- 資格者配置: 全日に喀痰吸引資格者を最低1名配置（法的要件、常に強制）
+- 資格者配置: 全日に喀痰吸引資格者を施設全体で最低1名配置（法的要件）
+  → グループ単独ではなく全グループ合算で判定。最適化後に施設横断で検証。
 - グループ別最低人数: 早出2名、日勤1名（日曜0可）、遅出1名、夜勤1名（ソフト制約）
 - 勤務配慮ありのスタッフは夜勤免除
 - 事前勤務指定（ASSIGN_職員ID_YYYYMMDD）をハード制約として固定
@@ -764,10 +765,11 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
         min_staff_penalties.append(night_short * 50)
 
     # ============================================
-    # 制約8: 喀痰吸引資格者配置（ソフト制約・グループ単位）
-    # 法的要件は「全グループ合計で毎日1名以上」であり、グループ単独の
-    # ハード制約にすると資格者が少ないグループで解が見つからなくなる。
-    # グループ内で資格者が勤務していない日にペナルティを加える。
+    # 制約8: 喀痰吸引資格者配置（ソフト制約・グループ単位のインセンティブ）
+    # 法的要件は「全グループ合計で毎日1名以上」（施設横断）であり、
+    # グループ単独のハード制約にすると資格者が少ないグループで解が見つからない。
+    # ここではグループ内で資格者が勤務している日を優遇（ペナルティで誘導）し、
+    # 施設全体の充足は optimize_shift_with_diagnostics() で事後検証する。
     # ============================================
     suction_penalties = []
     suction_staff_indices = [i for i in range(num_staff) if staff_has_suction[i]]
@@ -1011,6 +1013,50 @@ def optimize_shift_with_diagnostics(holiday_df, staff_df, settings_df, year, mon
         combined_df = pd.concat(all_results, ignore_index=True)
     else:
         combined_df = None
+
+    # ============================================
+    # 施設横断: 喀痰吸引資格者の全日配置チェック（法的要件）
+    # 全グループ合算で、毎日最低1名の資格者が勤務していることを検証
+    # ============================================
+    if combined_df is not None:
+        yasumi_name = shift_name_by_key[SHIFT_KEY_YASUMI]
+
+        # 資格者の職員IDセット
+        suction_staff_ids = set(
+            str(row['職員ID']) for _, row in active_staff.iterrows()
+            if row.get('喀痰吸引資格者', '') in (True, 'TRUE', '有', 'あり')
+        )
+
+        print(f'\n  施設横断 喀痰吸引資格者チェック（資格者{len(suction_staff_ids)}名）...')
+
+        violation_days = []
+        for day in range(1, days_in_month + 1):
+            date_str = f'{year}-{str(month).zfill(2)}-{str(day).zfill(2)}'
+            day_shifts = combined_df[combined_df['勤務開始日'] == date_str]
+
+            # この日に勤務している（休み以外の）資格者を検索
+            working_qualified = day_shifts[
+                (day_shifts['職員ID'].astype(str).isin(suction_staff_ids)) &
+                (day_shifts['シフト名'] != yasumi_name)
+            ]
+
+            if len(working_qualified) == 0:
+                violation_days.append(day)
+
+        if violation_days:
+            diagnostic.add_error(
+                '喀痰吸引資格者（施設横断）',
+                f'全グループ合計で喀痰吸引資格者が不在の日: {violation_days}',
+                f'{len(violation_days)}日間、施設全体で資格者が1名も勤務していません（法的要件違反）'
+            )
+            print(f'    NG: {len(violation_days)}日間の違反あり')
+            for day in violation_days:
+                date_str = f'{year}-{str(month).zfill(2)}-{str(day).zfill(2)}'
+                day_shifts = combined_df[combined_df['勤務開始日'] == date_str]
+                working_all = day_shifts[day_shifts['シフト名'] != yasumi_name]
+                print(f'      {month}/{day}: 勤務者{len(working_all)}名中、資格者0名')
+        else:
+            print(f'    OK: 全{days_in_month}日間、資格者が配置されています')
 
     # 失敗グループへの対策提案
     for group in failed_groups:
