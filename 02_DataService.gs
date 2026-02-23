@@ -226,6 +226,41 @@ function getShiftByName(shiftName) {
   return allShifts.find(shift => shift['シフト名'] === shiftName);
 }
 
+/**
+ * シフト名解決マップを構築
+ * M_シフトの現在の名称 + デフォルト名称（初期値・既知のエイリアス）→ 現在の名称
+ * M_シフトのシフト名が変更された場合でも、旧名称から現在の名称に解決できる
+ */
+function buildShiftNameResolutionMap() {
+  var shiftMap = getShiftMasterMap();
+  var byName = shiftMap.byName;
+  var byKey = shiftMap.byKey;
+
+  var resolution = {};
+  // 現在の名称 → そのまま
+  Object.keys(byName).forEach(function(name) { resolution[name] = name; });
+
+  // デフォルト名称・既知エイリアス → シフトキー経由で現在の名称に解決
+  var defaults = {
+    '早出': 'SHIFT_HAYADE',
+    '日勤': 'SHIFT_NIKKIN',
+    '遅出': 'SHIFT_OSODE',
+    '夜勤': 'SHIFT_YAKIN',
+    '休み': 'SHIFT_YASUMI',
+    'ヤ': 'SHIFT_YASUMI'
+  };
+  Object.keys(defaults).forEach(function(oldName) {
+    if (!resolution[oldName]) {
+      var key = defaults[oldName];
+      if (byKey[key]) {
+        resolution[oldName] = byKey[key];
+      }
+    }
+  });
+
+  return resolution;
+}
+
 // シフトマスタを保存/更新
 function saveShiftMaster(shiftData) {
   try {

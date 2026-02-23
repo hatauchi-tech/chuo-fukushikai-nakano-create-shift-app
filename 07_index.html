@@ -2117,7 +2117,7 @@
 
       // シフト種類一覧（マスタ順）
       var shiftNames = shiftMasterList.map(function(sm) { return sm['シフト名']; });
-      if (shiftNames.length === 0) shiftNames = shiftMasterList.map(function(sm) { return sm['シフト名']; });
+      var yasumiDefault = (shiftMasterList.find(function(sm) { return sm['シフトID'] === 'SHIFT_YASUMI'; }) || {})['シフト名'] || '休み';
 
       var dayNames = ['日','月','火','水','木','金','土'];
 
@@ -2141,9 +2141,11 @@
       data.staffShifts.forEach(function(staff) {
         data.dateInfo.forEach(function(d) {
           var shift = staff.shifts[d.day];
-          var yasumiDefault = (shiftMasterList.find(function(sm) { return sm['シフトID'] === 'SHIFT_YASUMI'; }) || {})['シフト名'] || '休み';
           var name = shift ? (shift.shiftName || yasumiDefault) : yasumiDefault;
-          if (!dailyCounts[name]) dailyCounts[name] = {};
+          if (!dailyCounts[name]) {
+            dailyCounts[name] = {};
+            shiftNames.push(name);
+          }
           dailyCounts[name][d.day] = (dailyCounts[name][d.day] || 0) + 1;
         });
       });

@@ -398,11 +398,17 @@ function importShiftResultFromCSV(fileId) {
     // 一括保存用の配列
     const shiftsToSave = [];
     const N_YASUMI_CSV = getShiftMasterMap().byKey[SHIFT_KEYS.YASUMI] || '休み';
+    const nameResolution = buildShiftNameResolutionMap();
 
     dataRows.forEach(row => {
-      const shiftName = row[shiftIndex];
+      var shiftName = row[shiftIndex];
 
-      // 「休み」はスキップ
+      // シフト名を現在のM_シフト名に解決（旧名称・エイリアス対応）
+      if (shiftName && nameResolution[shiftName]) {
+        shiftName = nameResolution[shiftName];
+      }
+
+      // 「休み」はスキップ（解決後の名称で判定）
       if (!shiftName || shiftName === N_YASUMI_CSV || shiftName === '') {
         return;
       }

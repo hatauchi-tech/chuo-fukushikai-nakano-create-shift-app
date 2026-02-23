@@ -702,6 +702,9 @@ function apiGetShiftDataByGroup(year, month, group) {
     const shiftMap = getShiftMasterMap().byKey;
     const N_YASUMI = shiftMap[SHIFT_KEYS.YASUMI] || '休み';
 
+    // シフト名解決マップ（旧名称→現在名称の変換用）
+    const nameResolution = buildShiftNameResolutionMap();
+
     // 確定シフトデータを取得
     const confirmedShifts = getConfirmedShiftsByMonth(year, month);
 
@@ -760,9 +763,13 @@ function apiGetShiftDataByGroup(year, month, group) {
             }
           }
 
+          // シフト名を現在のM_シフト名に解決（旧名称対応）
+          var rawShiftName = shift['シフト名'] ? String(shift['シフト名']) : N_YASUMI;
+          var resolvedShiftName = nameResolution[rawShiftName] || rawShiftName;
+
           shifts[day] = {
             shiftId: shift['確定シフトID'] ? String(shift['確定シフトID']) : '',
-            shiftName: shift['シフト名'] ? String(shift['シフト名']) : N_YASUMI,
+            shiftName: resolvedShiftName,
             startTime: formatTimeValue(shift['開始時間']),
             endTime: formatTimeValue(shift['終了時間']),
             registrationDate: regDateStr,
@@ -1115,6 +1122,7 @@ function apiRunDiagnostics(year, month) {
     var N_OSODE  = diagShiftMap[SHIFT_KEYS.OSODE]  || '遅出';
     var N_YAKIN  = diagShiftMap[SHIFT_KEYS.YAKIN]   || '夜勤';
     var N_YASUMI = diagShiftMap[SHIFT_KEYS.YASUMI]  || '休み';
+    var nameResolutionDiag = buildShiftNameResolutionMap();
 
     // 職員ごとのシフトマップを構築（職員IDをキーとして使用）
     var staffShiftMap = {};
@@ -1132,7 +1140,8 @@ function apiRunDiagnostics(year, month) {
         ? shift['職員ID']
         : shift['氏名'];
       if (staffShiftMap[key]) {
-        staffShiftMap[key].shifts[day] = shift['シフト名'] || N_YASUMI;
+        var rawName = shift['シフト名'] || N_YASUMI;
+        staffShiftMap[key].shifts[day] = nameResolutionDiag[rawName] || rawName;
       }
     });
 
