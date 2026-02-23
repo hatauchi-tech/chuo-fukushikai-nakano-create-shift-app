@@ -889,9 +889,6 @@ function calculateShiftStatistics(staffShifts, daysInMonth) {
         }
       } else {
         workDays++;
-        if (shiftName === N_YAKIN) {
-          workDays++;
-        }
       }
       prevShiftName = shiftName;
     }
