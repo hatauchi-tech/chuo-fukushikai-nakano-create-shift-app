@@ -1325,11 +1325,6 @@ function apiRunDiagnostics(year, month) {
         }
       }
 
-      if (workDays > 21) {
-        violations.push({ type: '勤務日数超過', level: 'error', day: null,
-          staffId: name, staffName: displayName, group: staffGroup,
-          message: label + ': 勤務日数' + workDays + '日（上限21日）' });
-      }
     });
 
     // グループ別・日別チェック
