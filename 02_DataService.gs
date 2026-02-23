@@ -177,6 +177,9 @@ function getAllShiftMaster() {
           shift[header] = Utilities.formatDate(value, Session.getScriptTimeZone(), 'HH:mm');
         } else if (value === null || value === undefined) {
           shift[header] = '';
+        } else if (header === 'シフトID' || header === 'シフト名') {
+          // シフトIDとシフト名は必ず文字列型にする（数値セル対策）
+          shift[header] = String(value);
         } else {
           shift[header] = value;
         }
@@ -668,6 +671,9 @@ function getConfirmedShiftsByMonth(year, month) {
               shift[header] = value;
             } else if (value === null || value === undefined) {
               shift[header] = '';
+            } else if (header === 'シフト名' || header === '職員ID' || header === '確定シフトID') {
+              // 文字列型を保証（数値セル対策）
+              shift[header] = String(value);
             } else {
               shift[header] = value;
             }
