@@ -556,6 +556,18 @@ function apiRegisterShiftToCalendar(year, month) {
 }
 
 /**
+ * Google ColabのURLを取得（スクリプトプロパティから）
+ */
+function apiGetColabUrl() {
+  try {
+    var url = PropertiesService.getScriptProperties().getProperty('GOOGLE_COLAB_URL');
+    return { success: true, url: url || '' };
+  } catch (e) {
+    return { success: false, url: '', message: e.message };
+  }
+}
+
+/**
  * シフト作成用3種CSV一括出力API
  * T_休み希望.csv, M_職員.csv, M_設定.csv を一括出力
  */

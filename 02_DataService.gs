@@ -816,8 +816,10 @@ function getShiftAssignmentsByMonth(year, month) {
     var data = sheet.getDataRange().getValues();
     var headers = data[0];
     var assignments = [];
+    var dateIdx = headers.indexOf('日付');
+    if (dateIdx < 0) dateIdx = 4; // フォールバック
     for (var i = 1; i < data.length; i++) {
-      var dateVal = data[i][3];
+      var dateVal = data[i][dateIdx];
       if (!dateVal) continue;
       var targetYM = String(year) + String(month).padStart(2, '0');
       var rowYM = Utilities.formatDate(new Date(dateVal), Session.getScriptTimeZone(), 'yyyyMM');
