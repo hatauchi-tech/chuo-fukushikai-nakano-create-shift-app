@@ -698,6 +698,10 @@ function apiGetShiftDataByGroup(year, month, group) {
       return { success: false, message: `グループ${group}に職員がいません` };
     }
 
+    // シフトマスタから動的にシフト名を取得
+    const shiftMap = getShiftMasterMap().byKey;
+    const N_YASUMI = shiftMap[SHIFT_KEYS.YASUMI] || '休み';
+
     // 確定シフトデータを取得
     const confirmedShifts = getConfirmedShiftsByMonth(year, month);
 
@@ -724,7 +728,7 @@ function apiGetShiftDataByGroup(year, month, group) {
 
       // 全日休みで初期化
       for (let d = 1; d <= daysInMonth; d++) {
-        shifts[d] = { shiftName: '休み', startTime: '', endTime: '' };
+        shifts[d] = { shiftName: N_YASUMI, startTime: '', endTime: '' };
       }
 
       // 確定シフトデータを上書き（職員IDで照合、フォールバックとして氏名も使用）
@@ -758,7 +762,7 @@ function apiGetShiftDataByGroup(year, month, group) {
 
           shifts[day] = {
             shiftId: shift['確定シフトID'] ? String(shift['確定シフトID']) : '',
-            shiftName: shift['シフト名'] ? String(shift['シフト名']) : '休み',
+            shiftName: shift['シフト名'] ? String(shift['シフト名']) : N_YASUMI,
             startTime: formatTimeValue(shift['開始時間']),
             endTime: formatTimeValue(shift['終了時間']),
             registrationDate: regDateStr,
@@ -852,6 +856,10 @@ function getNthWeekday(year, month, dayOfWeek, n) {
  * シフト統計情報を計算
  */
 function calculateShiftStatistics(staffShifts, daysInMonth) {
+  var shiftMap = getShiftMasterMap().byKey;
+  var N_YASUMI = shiftMap[SHIFT_KEYS.YASUMI] || '休み';
+  var N_YAKIN  = shiftMap[SHIFT_KEYS.YAKIN]  || '夜勤';
+
   return staffShifts.map(staff => {
     let workDays = 0;
     let restDays = 0;
@@ -859,19 +867,19 @@ function calculateShiftStatistics(staffShifts, daysInMonth) {
 
     for (let d = 1; d <= daysInMonth; d++) {
       const shift = staff.shifts[d];
-      const shiftName = shift.shiftName || '休み';
+      const shiftName = shift.shiftName || N_YASUMI;
 
       if (!shiftCounts[shiftName]) {
         shiftCounts[shiftName] = 0;
       }
       shiftCounts[shiftName]++;
 
-      if (shiftName === '休み') {
+      if (shiftName === N_YASUMI) {
         restDays++;
       } else {
         workDays++;
         // 夜勤は2日分換算
-        if (shiftName === '夜勤') {
+        if (shiftName === N_YAKIN) {
           workDays++;
         }
       }
@@ -925,7 +933,8 @@ function apiUpdateShift(staffName, year, month, day, shiftName) {
       new Date(s['勤務開始日']).getDate() === day
     );
 
-    if (shiftName === '休み') {
+    var yasumiName = getShiftMasterMap().byKey[SHIFT_KEYS.YASUMI] || '休み';
+    if (shiftName === yasumiName) {
       // 休みの場合は削除
       if (existing && existing['確定シフトID']) {
         deleteConfirmedShift(existing['確定シフトID']);
@@ -963,6 +972,46 @@ function apiUpdateShift(staffName, year, month, day, shiftName) {
 }
 
 /**
+ * シフトを確定（カレンダー登録なし）
+ * @param {number} year - 年
+ * @param {number} month - 月
+ * @param {number} group - グループ（省略時は全グループ）
+ */
+function apiConfirmShifts(year, month, group) {
+  try {
+    console.log(`シフト確定（カレンダーなし）: ${year}年${month}月 グループ${group || '全て'}`);
+
+    var now = new Date();
+    var registrationDate = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy/MM/dd HH:mm:ss');
+
+    var shifts = getConfirmedShiftsByMonth(year, month);
+    var targetShifts = group
+      ? shifts.filter(function(s) { return String(s['グループ']) === String(group); })
+      : shifts;
+
+    var shiftMapConfirm = getShiftMasterMap().byKey;
+    var N_YASUMI_CONFIRM = shiftMapConfirm[SHIFT_KEYS.YASUMI] || '休み';
+    var confirmedCount = 0;
+
+    for (var i = 0; i < targetShifts.length; i++) {
+      var shift = targetShifts[i];
+      if (shift['シフト名'] === N_YASUMI_CONFIRM || !shift['シフト名']) continue;
+      updateConfirmedShiftFields(shift['確定シフトID'], { '登録日時': registrationDate });
+      confirmedCount++;
+    }
+
+    return {
+      success: true,
+      count: confirmedCount,
+      message: confirmedCount + '件のシフトを確定しました'
+    };
+  } catch (e) {
+    console.error('シフト確定エラー:', e);
+    return { success: false, message: e.message };
+  }
+}
+
+/**
  * シフトを確定してカレンダー登録
  * @param {number} year - 年
  * @param {number} month - 月
@@ -982,11 +1031,12 @@ function apiConfirmShiftsAndRegisterCalendar(year, month, group) {
       ? shifts.filter(s => String(s['グループ']) === String(group))
       : shifts;
 
+    const N_YASUMI_CAL = getShiftMasterMap().byKey[SHIFT_KEYS.YASUMI] || '休み';
     let registeredCount = 0;
 
     // 各シフトにカレンダー登録
     for (const shift of targetShifts) {
-      if (shift['シフト名'] === '休み' || !shift['シフト名']) continue;
+      if (shift['シフト名'] === N_YASUMI_CAL || !shift['シフト名']) continue;
 
       // 職員IDで検索、フォールバックとして氏名も使用
       const staff = (shift['職員ID'] ? getStaffById(shift['職員ID']) : null) || getStaffByName(shift['氏名']);
@@ -1054,13 +1104,21 @@ function apiRunDiagnostics(year, month) {
     var daysInMonth = new Date(year, month, 0).getDate();
     var allStaff = getActiveStaff();
 
+    // シフトマスタから動的にシフト名を取得
+    var diagShiftMap = getShiftMasterMap().byKey;
+    var N_HAYADE = diagShiftMap[SHIFT_KEYS.HAYADE] || '早出';
+    var N_NIKKIN = diagShiftMap[SHIFT_KEYS.NIKKIN] || '日勤';
+    var N_OSODE  = diagShiftMap[SHIFT_KEYS.OSODE]  || '遅出';
+    var N_YAKIN  = diagShiftMap[SHIFT_KEYS.YAKIN]   || '夜勤';
+    var N_YASUMI = diagShiftMap[SHIFT_KEYS.YASUMI]  || '休み';
+
     // 職員ごとのシフトマップを構築（職員IDをキーとして使用）
     var staffShiftMap = {};
     allStaff.forEach(function(staff) {
       var key = staff['職員ID'] || staff['氏名'];
       staffShiftMap[key] = { staffInfo: staff, shifts: {} };
       for (var d = 1; d <= daysInMonth; d++) {
-        staffShiftMap[key].shifts[d] = '休み';
+        staffShiftMap[key].shifts[d] = N_YASUMI;
       }
     });
     confirmedShifts.forEach(function(shift) {
@@ -1070,7 +1128,7 @@ function apiRunDiagnostics(year, month) {
         ? shift['職員ID']
         : shift['氏名'];
       if (staffShiftMap[key]) {
-        staffShiftMap[key].shifts[day] = shift['シフト名'] || '休み';
+        staffShiftMap[key].shifts[day] = shift['シフト名'] || N_YASUMI;
       }
     });
 
@@ -1086,7 +1144,7 @@ function apiRunDiagnostics(year, month) {
       for (var d = 1; d <= daysInMonth; d++) {
         var s = entry.shifts[d];
 
-        if (s !== '休み' && s !== '') {
+        if (s !== N_YASUMI && s !== '') {
           if (consecutiveDays === 0) consecutiveStart = d;
           consecutiveDays++;
           if (consecutiveDays >= 6) {
@@ -1095,22 +1153,22 @@ function apiRunDiagnostics(year, month) {
           }
         } else { consecutiveDays = 0; }
 
-        if (s === '夜勤') { workDays += 2; }
-        else if (s !== '休み' && s !== '') { workDays += 1; }
+        if (s === N_YAKIN) { workDays += 2; }
+        else if (s !== N_YASUMI && s !== '') { workDays += 1; }
 
-        if (d < daysInMonth && s === '遅出' && entry.shifts[d + 1] === '早出') {
+        if (d < daysInMonth && s === N_OSODE && entry.shifts[d + 1] === N_HAYADE) {
           violations.push({ type: 'インターバル違反', level: 'error', day: d,
-            message: name + ': ' + d + '日遅出 → ' + (d + 1) + '日早出' });
+            message: name + ': ' + d + '日' + N_OSODE + ' → ' + (d + 1) + '日' + N_HAYADE });
         }
 
-        if (s === '夜勤') {
-          if (d + 1 <= daysInMonth && entry.shifts[d + 1] !== '休み') {
+        if (s === N_YAKIN) {
+          if (d + 1 <= daysInMonth && entry.shifts[d + 1] !== N_YASUMI) {
             violations.push({ type: '夜勤明け違反', level: 'error', day: d + 1,
-              message: name + ': ' + d + '日夜勤後、' + (d + 1) + '日が休みではない' });
+              message: name + ': ' + d + '日' + N_YAKIN + '後、' + (d + 1) + '日が' + N_YASUMI + 'ではない' });
           }
-          if (d + 2 <= daysInMonth && entry.shifts[d + 2] !== '休み') {
+          if (d + 2 <= daysInMonth && entry.shifts[d + 2] !== N_YASUMI) {
             violations.push({ type: '夜勤明け違反', level: 'error', day: d + 2,
-              message: name + ': ' + d + '日夜勤後、' + (d + 2) + '日が休みではない' });
+              message: name + ': ' + d + '日' + N_YAKIN + '後、' + (d + 2) + '日が' + N_YASUMI + 'ではない' });
           }
         }
       }
@@ -1132,10 +1190,15 @@ function apiRunDiagnostics(year, month) {
         var group = entry.staffInfo['グループ'];
         if (!group) return;
         if (!groupCounts[group]) {
-          groupCounts[group] = { '早出': 0, '日勤': 0, '遅出': 0, '夜勤': 0 };
+          var initCounts = {};
+          initCounts[N_HAYADE] = 0;
+          initCounts[N_NIKKIN] = 0;
+          initCounts[N_OSODE] = 0;
+          initCounts[N_YAKIN] = 0;
+          groupCounts[group] = initCounts;
         }
         if (groupCounts[group].hasOwnProperty(s)) { groupCounts[group][s]++; }
-        if (s === '夜勤' &&
+        if (s === N_YAKIN &&
             (entry.staffInfo['喀痰吸引資格者'] === true || entry.staffInfo['喀痰吸引資格者'] === 'TRUE')) {
           nightQualifiedByGroup[group] = true;
         }
@@ -1143,19 +1206,19 @@ function apiRunDiagnostics(year, month) {
 
       Object.keys(groupCounts).forEach(function(group) {
         var c = groupCounts[group];
-        if (c['早出'] < 2) violations.push({ type: '最低人数不足', level: 'error', day: d,
-          message: d + '日 G' + group + ': 早出' + c['早出'] + '名（最低2名必要）' });
+        if (c[N_HAYADE] < 2) violations.push({ type: '最低人数不足', level: 'error', day: d,
+          message: d + '日 G' + group + ': ' + N_HAYADE + c[N_HAYADE] + '名（最低2名必要）' });
         // 業務ルール: 日曜日は日勤0名でも可（04_ShiftService.gs の checkMinimumStaffRule と同じ仕様）
         var isSunday = new Date(year, month - 1, d).getDay() === 0;
-        if (!isSunday && c['日勤'] < 1) violations.push({ type: '最低人数不足', level: 'error', day: d,
-          message: d + '日 G' + group + ': 日勤' + c['日勤'] + '名（最低1名必要）' });
-        if (c['遅出'] < 1) violations.push({ type: '最低人数不足', level: 'error', day: d,
-          message: d + '日 G' + group + ': 遅出' + c['遅出'] + '名（最低1名必要）' });
-        if (c['夜勤'] < 1) violations.push({ type: '最低人数不足', level: 'error', day: d,
-          message: d + '日 G' + group + ': 夜勤' + c['夜勤'] + '名（最低1名必要）' });
+        if (!isSunday && c[N_NIKKIN] < 1) violations.push({ type: '最低人数不足', level: 'error', day: d,
+          message: d + '日 G' + group + ': ' + N_NIKKIN + c[N_NIKKIN] + '名（最低1名必要）' });
+        if (c[N_OSODE] < 1) violations.push({ type: '最低人数不足', level: 'error', day: d,
+          message: d + '日 G' + group + ': ' + N_OSODE + c[N_OSODE] + '名（最低1名必要）' });
+        if (c[N_YAKIN] < 1) violations.push({ type: '最低人数不足', level: 'error', day: d,
+          message: d + '日 G' + group + ': ' + N_YAKIN + c[N_YAKIN] + '名（最低1名必要）' });
         if (!nightQualifiedByGroup[group]) {
           warnings.push({ type: '資格者不在', level: 'warning', day: d,
-            message: d + '日 G' + group + ': 夜勤に喀痰吸引資格者が配置されていません' });
+            message: d + '日 G' + group + ': ' + N_YAKIN + 'に喀痰吸引資格者が配置されていません' });
         }
       });
     }

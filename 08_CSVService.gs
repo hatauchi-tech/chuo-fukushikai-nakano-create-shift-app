@@ -397,12 +397,13 @@ function importShiftResultFromCSV(fileId) {
 
     // 一括保存用の配列
     const shiftsToSave = [];
+    const N_YASUMI_CSV = getShiftMasterMap().byKey[SHIFT_KEYS.YASUMI] || '休み';
 
     dataRows.forEach(row => {
       const shiftName = row[shiftIndex];
 
       // 「休み」はスキップ
-      if (!shiftName || shiftName === '休み' || shiftName === '') {
+      if (!shiftName || shiftName === N_YASUMI_CSV || shiftName === '') {
         return;
       }
 
