@@ -708,6 +708,12 @@ function apiGetShiftDataByGroup(year, month, group) {
     // 確定シフトデータを取得
     const confirmedShifts = getConfirmedShiftsByMonth(year, month);
 
+    // 前月末日のシフトを取得（月初1日の公休判定に必要：前月末が夜勤なら1日は夜勤明け）
+    const prevYear = month === 1 ? year - 1 : year;
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevMonthLastDay = new Date(prevYear, prevMonth, 0).getDate();
+    const prevMonthShifts = getConfirmedShiftsByMonth(prevYear, prevMonth);
+
     // 月の日数と日付情報を生成
     const daysInMonth = new Date(year, month, 0).getDate();
     const dateInfo = [];
@@ -778,11 +784,23 @@ function apiGetShiftDataByGroup(year, month, group) {
         }
       });
 
+      // 前月末日のシフト名を取得（月初1日の公休判定用）
+      let prevMonthLastShift = N_YASUMI;
+      const prevShiftForStaff = prevMonthShifts.find(s =>
+        (staffId && s['職員ID'] === staffId) || (!s['職員ID'] && s['氏名'] === staffName)
+        && new Date(s['勤務開始日']).getDate() === prevMonthLastDay
+      );
+      if (prevShiftForStaff && prevShiftForStaff['シフト名']) {
+        var rawPrev = String(prevShiftForStaff['シフト名']);
+        prevMonthLastShift = nameResolution[rawPrev] || rawPrev;
+      }
+
       return {
         staffId: staff['職員ID'],
         name: staffName,
         group: staff['グループ'],
-        shifts: shifts
+        shifts: shifts,
+        prevMonthLastShift: prevMonthLastShift
       };
     });
 
@@ -871,7 +889,8 @@ function calculateShiftStatistics(staffShifts, daysInMonth) {
     let workDays = 0;
     let trueHolidays = 0;
     const shiftCounts = {};
-    let prevShiftName = '';
+    // 前月末日のシフト名（月初1日が夜勤明けかどうかの判定用）
+    let prevShiftName = staff.prevMonthLastShift || '';
 
     for (let d = 1; d <= daysInMonth; d++) {
       const shift = staff.shifts[d];

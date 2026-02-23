@@ -2078,7 +2078,8 @@
         var workDays = 0;
         var trueHolidays = 0;
         var shiftCounts = {};
-        var prevShiftName = '';
+        // 前月末日のシフト名（月初1日が夜勤明けかどうかの判定用）
+        var prevShiftName = staff.prevMonthLastShift || '';
 
         for (var d = 1; d <= daysInMonth; d++) {
           var shift = staff.shifts[d];
