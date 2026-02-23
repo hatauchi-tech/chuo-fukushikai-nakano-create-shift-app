@@ -73,11 +73,27 @@ function isAdminRole(role) {
   return role === '管理者';
 }
 
+// Googleアカウント別のセッションキーを取得
+// 「Execute as: Me」デプロイではUserPropertiesが全ユーザーで共有されるため、
+// Googleアカウントのメールアドレスでセッションを分離する
+function getSessionKey_() {
+  try {
+    var email = Session.getActiveUser().getEmail();
+    if (email) {
+      return 'SESSION_' + email;
+    }
+  } catch (e) {
+    console.log('getActiveUser取得不可、フォールバック使用');
+  }
+  return 'SESSION';
+}
+
 // セッション情報を取得（UserPropertiesから）
 function getSession() {
   try {
     const userProps = PropertiesService.getUserProperties();
-    const sessionJson = userProps.getProperty('SESSION');
+    const key = getSessionKey_();
+    const sessionJson = userProps.getProperty(key);
 
     if (!sessionJson) {
       return null;
@@ -94,8 +110,9 @@ function getSession() {
 function setSession(sessionData) {
   try {
     const userProps = PropertiesService.getUserProperties();
-    userProps.setProperty('SESSION', JSON.stringify(sessionData));
-    console.log(`セッション保存: ${sessionData.name}`);
+    const key = getSessionKey_();
+    userProps.setProperty(key, JSON.stringify(sessionData));
+    console.log(`セッション保存: ${sessionData.name} (key=${key})`);
   } catch (e) {
     console.error('セッション保存エラー:', e);
   }
@@ -105,8 +122,9 @@ function setSession(sessionData) {
 function clearSession() {
   try {
     const userProps = PropertiesService.getUserProperties();
-    userProps.deleteProperty('SESSION');
-    console.log('セッションクリア');
+    const key = getSessionKey_();
+    userProps.deleteProperty(key);
+    console.log(`セッションクリア (key=${key})`);
   } catch (e) {
     console.error('セッションクリアエラー:', e);
   }
