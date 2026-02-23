@@ -908,6 +908,10 @@ function calculateShiftStatistics(staffShifts, daysInMonth) {
         }
       } else {
         workDays++;
+        // 夜勤は日またぎで2日分勤務扱い
+        if (shiftName === N_YAKIN) {
+          workDays++;
+        }
       }
       prevShiftName = shiftName;
     }
