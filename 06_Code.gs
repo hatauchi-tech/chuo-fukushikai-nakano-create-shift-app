@@ -1335,7 +1335,8 @@ function apiRunDiagnostics(year, month) {
     // グループ別・日別チェック
     for (var d = 1; d <= daysInMonth; d++) {
       var groupCounts = {};
-      var nightQualifiedByGroup = {};
+      var nightQualifiedFacilityWide = false; // 施設全体で夜勤に資格者がいるか
+      var qualifiedWorkingFacilityWide = false; // 施設全体で資格者が勤務しているか
 
       staffNames.forEach(function(name) {
         var entry = staffShiftMap[name];
@@ -1351,17 +1352,24 @@ function apiRunDiagnostics(year, month) {
           groupCounts[group] = initCounts;
         }
         if (groupCounts[group].hasOwnProperty(s)) { groupCounts[group][s]++; }
-        if (s === N_YAKIN &&
-            (entry.staffInfo['喀痰吸引資格者'] === true || entry.staffInfo['喀痰吸引資格者'] === 'TRUE')) {
-          nightQualifiedByGroup[group] = true;
+
+        var hasSuction = entry.staffInfo['喀痰吸引資格者'] === true ||
+                         entry.staffInfo['喀痰吸引資格者'] === 'TRUE' ||
+                         entry.staffInfo['喀痰吸引資格者'] === '有' ||
+                         entry.staffInfo['喀痰吸引資格者'] === 'あり';
+        if (hasSuction && s !== N_YASUMI) {
+          qualifiedWorkingFacilityWide = true;
+        }
+        if (hasSuction && s === N_YAKIN) {
+          nightQualifiedFacilityWide = true;
         }
       });
 
+      // グループ別最低人数チェック
       Object.keys(groupCounts).forEach(function(group) {
         var c = groupCounts[group];
         if (c[N_HAYADE] < 2) violations.push({ type: '最低人数不足', level: 'error', day: d,
           message: d + '日 G' + group + ': ' + N_HAYADE + c[N_HAYADE] + '名（最低2名必要）' });
-        // 業務ルール: 日曜日は日勤0名でも可（04_ShiftService.gs の checkMinimumStaffRule と同じ仕様）
         var isSunday = new Date(year, month - 1, d).getDay() === 0;
         if (!isSunday && c[N_NIKKIN] < 1) violations.push({ type: '最低人数不足', level: 'error', day: d,
           message: d + '日 G' + group + ': ' + N_NIKKIN + c[N_NIKKIN] + '名（最低1名必要）' });
@@ -1369,11 +1377,17 @@ function apiRunDiagnostics(year, month) {
           message: d + '日 G' + group + ': ' + N_OSODE + c[N_OSODE] + '名（最低1名必要）' });
         if (c[N_YAKIN] < 1) violations.push({ type: '最低人数不足', level: 'error', day: d,
           message: d + '日 G' + group + ': ' + N_YAKIN + c[N_YAKIN] + '名（最低1名必要）' });
-        if (!nightQualifiedByGroup[group]) {
-          warnings.push({ type: '資格者不在', level: 'warning', day: d,
-            message: d + '日 G' + group + ': ' + N_YAKIN + 'に喀痰吸引資格者が配置されていません' });
-        }
       });
+
+      // 施設横断: 喀痰吸引資格者チェック（法的要件）
+      if (!qualifiedWorkingFacilityWide) {
+        violations.push({ type: '資格者不在（施設横断）', level: 'error', day: d,
+          message: d + '日: 施設全体で喀痰吸引資格者が1名も勤務していません（法的要件）' });
+      }
+      if (!nightQualifiedFacilityWide) {
+        warnings.push({ type: '資格者夜勤不在（施設横断）', level: 'warning', day: d,
+          message: d + '日: 施設全体で' + N_YAKIN + 'に喀痰吸引資格者が配置されていません' });
+      }
     }
 
     var allIssues = violations.concat(warnings);
