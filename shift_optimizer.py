@@ -6,13 +6,13 @@
 - 診断・緩和・部分出力・レポート保存（診断版）
 
 制約条件:
-- 休み希望の優先順位: 第1希望は必須、第2希望以降はソフト制約
-- 所定勤務日数: 夜勤2日換算で厳守（緩和時は±2）
+- 休み希望の優先順位: 全てソフト制約（優先順位で重み付け）
+- 公休数: 夜勤明けの休みは公休外で厳守（緩和時は±2）
 - 連勤制限: 連続5日まで（6連勤以上は不可）
 - インターバル: 遅出→翌日早出は禁止
 - 夜勤明けルール: 夜勤→休→休（翌日・翌々日は休み必須）
-- 資格者配置: 全日に喀痰吸引資格者を最低1名配置（緩和時はスキップ）
-- グループ別最低人数: 早出2名、日勤1名（日曜0可）、遅出1名、夜勤1名
+- 資格者配置: 全日に喀痰吸引資格者を最低1名配置（法的要件、常に強制）
+- グループ別最低人数: 早出2名、日勤1名（日曜0可）、遅出1名、夜勤1名（ソフト制約）
 - 勤務配慮ありのスタッフは夜勤免除
 - 事前勤務指定（ASSIGN_職員ID_YYYYMMDD）をハード制約として固定
 """
@@ -594,7 +594,7 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
         model.Add(shifts[(s, d, t)] == 1)
 
     # ============================================
-    # 制約1: 休み希望（優先順位1は必須、2以降はソフト制約）
+    # 制約1: 休み希望（全てソフト制約、優先順位で重み付け）
     # ============================================
     soft_holiday_penalties = []
 
@@ -610,14 +610,12 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
             d = request_date.day - 1
             priority = int(row['優先順位'])
 
-            if priority == 1:
-                model.Add(shifts[(s, d, SHIFT_REST)] == 1)
-            else:
-                weight = max(1, 20 - priority * 3)
-                not_rest = model.NewBoolVar(f'not_rest_s{s}_d{d}')
-                model.Add(shifts[(s, d, SHIFT_REST)] == 0).OnlyEnforceIf(not_rest)
-                model.Add(shifts[(s, d, SHIFT_REST)] == 1).OnlyEnforceIf(not_rest.Not())
-                soft_holiday_penalties.append(not_rest * weight)
+            # 全優先順位をソフト制約に（P1=30, P2=17, P3=14, ...）
+            weight = max(1, 33 - priority * 3)
+            not_rest = model.NewBoolVar(f'not_rest_s{s}_d{d}')
+            model.Add(shifts[(s, d, SHIFT_REST)] == 0).OnlyEnforceIf(not_rest)
+            model.Add(shifts[(s, d, SHIFT_REST)] == 1).OnlyEnforceIf(not_rest.Not())
+            soft_holiday_penalties.append(not_rest * weight)
 
     # ============================================
     # 制約2: 連勤制限
@@ -633,21 +631,35 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
             model.Add(sum(work_vars) <= max_consecutive_work)
 
     # ============================================
-    # 制約3: 所定勤務日数（夜勤2日換算）
+    # 制約3: 公休数（夜勤明けの休みは公休に含めない）
+    # 夜勤→翌日「休み」は夜勤明け（勤務扱い）、翌々日「休み」が公休
     # ============================================
     for s in range(num_staff):
-        work_days_count = sum(
-            shifts[(s, d, t)]
-            for d in range(num_days)
-            for t in [SHIFT_EARLY, SHIFT_DAY, SHIFT_LATE]
-        )
-        work_days_count += sum(shifts[(s, d, SHIFT_NIGHT)] for d in range(num_days)) * 2
+        true_holidays = []
+        for d in range(num_days):
+            if d == 0:
+                # 月初日: 前日の夜勤情報がないため、休みなら公休扱い
+                true_holidays.append(shifts[(s, d, SHIFT_REST)])
+            else:
+                # 公休 = 休み AND 前日が夜勤ではない
+                is_true_holiday = model.NewBoolVar(f'true_holiday_s{s}_d{d}')
+                # is_true_holiday → rest[d]=1
+                model.AddImplication(is_true_holiday, shifts[(s, d, SHIFT_REST)])
+                # is_true_holiday → night[d-1]=0
+                model.AddImplication(is_true_holiday, shifts[(s, d-1, SHIFT_NIGHT)].Not())
+                # rest[d]=1 AND night[d-1]=0 → is_true_holiday
+                model.AddBoolOr([
+                    shifts[(s, d, SHIFT_REST)].Not(),
+                    shifts[(s, d-1, SHIFT_NIGHT)],
+                    is_true_holiday
+                ])
+                true_holidays.append(is_true_holiday)
 
         if relaxed:
-            model.Add(work_days_count >= scheduled_work_days - 2)
-            model.Add(work_days_count <= scheduled_work_days + 2)
+            model.Add(sum(true_holidays) >= monthly_holidays - 2)
+            model.Add(sum(true_holidays) <= monthly_holidays + 2)
         else:
-            model.Add(work_days_count == scheduled_work_days)
+            model.Add(sum(true_holidays) == monthly_holidays)
 
     # ============================================
     # 制約4: インターバル（遅出→翌日早出は禁止）
@@ -684,38 +696,59 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
                 model.Add(shifts[(s, d, SHIFT_NIGHT)] == 0)
 
     # ============================================
-    # 制約7: グループ別最低人数
+    # 制約7: グループ別最低人数（ソフト制約）
+    # 最低人数を下回るとペナルティ。公休数がハード制約なので人数不足は許容。
     # ============================================
-    min_early = 1 if relaxed else MIN_STAFF_REQUIREMENTS[SHIFT_KEY_HAYADE]
-    min_day   = 0 if relaxed else MIN_STAFF_REQUIREMENTS[SHIFT_KEY_NIKKIN]
+    min_early = MIN_STAFF_REQUIREMENTS[SHIFT_KEY_HAYADE]
+    min_day   = MIN_STAFF_REQUIREMENTS[SHIFT_KEY_NIKKIN]
     min_late  = MIN_STAFF_REQUIREMENTS[SHIFT_KEY_OSODE]
     min_night = MIN_STAFF_REQUIREMENTS[SHIFT_KEY_YAKIN]
 
+    min_staff_penalties = []
+
     for d in range(num_days):
-        model.Add(sum(shifts[(s, d, SHIFT_EARLY)] for s in range(num_staff)) >= min_early)
+        # 早出
+        early_short = model.NewIntVar(0, min_early, f'early_short_d{d}')
+        model.Add(
+            sum(shifts[(s, d, SHIFT_EARLY)] for s in range(num_staff)) + early_short >= min_early
+        )
+        min_staff_penalties.append(early_short * 50)
 
-        if d in sundays:
-            model.Add(sum(shifts[(s, d, SHIFT_DAY)] for s in range(num_staff)) >= 0)
-        else:
-            model.Add(sum(shifts[(s, d, SHIFT_DAY)] for s in range(num_staff)) >= min_day)
+        # 日勤（日曜は0でも可）
+        if d not in sundays:
+            day_short = model.NewIntVar(0, min_day, f'day_short_d{d}')
+            model.Add(
+                sum(shifts[(s, d, SHIFT_DAY)] for s in range(num_staff)) + day_short >= min_day
+            )
+            min_staff_penalties.append(day_short * 50)
 
-        model.Add(sum(shifts[(s, d, SHIFT_LATE)] for s in range(num_staff)) >= min_late)
-        model.Add(sum(shifts[(s, d, SHIFT_NIGHT)] for s in range(num_staff)) >= min_night)
+        # 遅出
+        late_short = model.NewIntVar(0, min_late, f'late_short_d{d}')
+        model.Add(
+            sum(shifts[(s, d, SHIFT_LATE)] for s in range(num_staff)) + late_short >= min_late
+        )
+        min_staff_penalties.append(late_short * 50)
+
+        # 夜勤
+        night_short = model.NewIntVar(0, min_night, f'night_short_d{d}')
+        model.Add(
+            sum(shifts[(s, d, SHIFT_NIGHT)] for s in range(num_staff)) + night_short >= min_night
+        )
+        min_staff_penalties.append(night_short * 50)
 
     # ============================================
-    # 制約8: 喀痰吸引資格者配置（緩和モードではスキップ）
+    # 制約8: 喀痰吸引資格者配置（法的要件のため常に強制）
     # ============================================
-    if not relaxed:
-        suction_staff_indices = [i for i in range(num_staff) if staff_has_suction[i]]
-        if len(suction_staff_indices) > 0:
-            for d in range(num_days):
-                model.Add(
-                    sum(
-                        shifts[(s, d, t)]
-                        for s in suction_staff_indices
-                        for t in [SHIFT_EARLY, SHIFT_DAY, SHIFT_LATE, SHIFT_NIGHT]
-                    ) >= 1
-                )
+    suction_staff_indices = [i for i in range(num_staff) if staff_has_suction[i]]
+    if len(suction_staff_indices) > 0:
+        for d in range(num_days):
+            model.Add(
+                sum(
+                    shifts[(s, d, t)]
+                    for s in suction_staff_indices
+                    for t in [SHIFT_EARLY, SHIFT_DAY, SHIFT_LATE, SHIFT_NIGHT]
+                ) >= 1
+            )
 
     # ============================================
     # 目的関数
@@ -724,6 +757,9 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
 
     # ソフト制約: 休み希望違反ペナルティ
     objective_terms.extend(soft_holiday_penalties)
+
+    # ソフト制約: 最低人数不足ペナルティ
+    objective_terms.extend(min_staff_penalties)
 
     # 公平性: 夜勤回数の分散を最小化
     night_counts = []
@@ -965,31 +1001,36 @@ def optimize_shift_with_diagnostics(holiday_df, staff_df, settings_df, year, mon
             count = len(combined_df[combined_df['シフト名'] == shift_type])
             print(f'    {shift_type}: {count}件')
 
-        # 所定勤務日数確認
-        hayade_name = shift_name_by_key[SHIFT_KEY_HAYADE]
-        nikkin_name = shift_name_by_key[SHIFT_KEY_NIKKIN]
-        osode_name = shift_name_by_key[SHIFT_KEY_OSODE]
+        # 公休数確認
         yakin_name = shift_name_by_key[SHIFT_KEY_YAKIN]
         yasumi_name = shift_name_by_key[SHIFT_KEY_YASUMI]
-        scheduled_work_days = days_in_month - int(get_setting(
+        monthly_holidays_val = int(get_setting(
             settings_df,
             f'MONTHLY_HOLIDAYS_{year}{str(month).zfill(2)}',
             9
         ))
 
-        print(f'\n  所定勤務日数確認（{yakin_name}2日換算、目標{scheduled_work_days}日）:')
+        print(f'\n  公休数確認（目標{monthly_holidays_val}日、夜勤明けの休みは公休外）:')
         for staff_id in active_staff['職員ID'].tolist():
             staff_shifts = combined_df[combined_df['職員ID'] == staff_id]
             if len(staff_shifts) == 0:
                 continue
-            normal_count = len(staff_shifts[staff_shifts['シフト名'].isin([hayade_name, nikkin_name, osode_name])])
-            night_count = len(staff_shifts[staff_shifts['シフト名'] == yakin_name])
-            rest_count = len(staff_shifts[staff_shifts['シフト名'] == yasumi_name])
-            work_value = normal_count + night_count * 2
-            calendar_work = normal_count + night_count
-            mark = '  ' if work_value == scheduled_work_days else '* '
-            print(f'    {mark}{staff_id}: {work_value}日（通常{normal_count} + {yakin_name}{night_count}x2）, '
-                  f'暦日{calendar_work}日, {yasumi_name}{rest_count}日')
+            staff_shifts_sorted = staff_shifts.sort_values('勤務開始日')
+            shift_list = staff_shifts_sorted['シフト名'].tolist()
+
+            rest_count = shift_list.count(yasumi_name)
+            night_count = shift_list.count(yakin_name)
+
+            # 公休数を計算（夜勤明けの休みを除外）
+            true_holiday_count = 0
+            for d_idx, sname in enumerate(shift_list):
+                if sname == yasumi_name:
+                    if d_idx == 0 or shift_list[d_idx - 1] != yakin_name:
+                        true_holiday_count += 1
+
+            mark = '  ' if true_holiday_count == monthly_holidays_val else '* '
+            print(f'    {mark}{staff_id}: 公休{true_holiday_count}日（休日{rest_count}日中、夜勤明け{rest_count - true_holiday_count}日除外）, '
+                  f'{yakin_name}{night_count}回')
 
         # 夜勤配分確認
         print(f'\n  {yakin_name}配分:')
