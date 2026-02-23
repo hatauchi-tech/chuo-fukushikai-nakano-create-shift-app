@@ -416,7 +416,7 @@ def optimize_shift(holiday_df, staff_df, settings_df, year, month):
     # ============================================
     for group in groups:
         group_staff_indices = [
-            i for i, name in enumerate(staff_names)
+            i for i, sid in enumerate(staff_ids)
             if staff_groups[i] == group
         ]
 
