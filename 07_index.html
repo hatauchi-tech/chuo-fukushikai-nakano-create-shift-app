@@ -546,10 +546,10 @@
               <!-- 属性フィルター -->
               <div class="flex flex-col gap-0.5 pt-4">
                 <label class="flex items-center gap-1 text-xs cursor-pointer">
-                  <input type="checkbox" id="shiftEditSuctionOnly"> 喀痰吸引資格者のみ
+                  <input type="checkbox" id="shiftEditSuctionOnly" onchange="applyFiltersAndRender()"> 喀痰吸引資格者のみ
                 </label>
                 <label class="flex items-center gap-1 text-xs cursor-pointer">
-                  <input type="checkbox" id="shiftEditCareOnly"> 勤務配慮ありのみ
+                  <input type="checkbox" id="shiftEditCareOnly" onchange="applyFiltersAndRender()"> 勤務配慮ありのみ
                 </label>
               </div>
               <!-- ボタン群 -->
@@ -1910,6 +1910,7 @@
         cb.type = 'checkbox';
         cb.value = val;
         cb.className = 'filter-cb-' + containerId;
+        cb.addEventListener('change', applyFiltersAndRender);
         label.appendChild(cb);
         label.appendChild(document.createTextNode(labelFn ? labelFn(val) : val));
         container.appendChild(label);
@@ -1939,6 +1940,7 @@
       });
       document.getElementById('shiftEditSuctionOnly').checked = false;
       document.getElementById('shiftEditCareOnly').checked = false;
+      applyFiltersAndRender();
     }
 
     // チェックされた値を取得するヘルパー
@@ -1996,7 +1998,7 @@
         .apiGetShiftMaster();
     }
 
-    // シフトデータを読み込み
+    // シフトデータを読み込み（全職員データをサーバーから取得）
     function loadShiftEditData() {
       var targetMonth = document.getElementById('shiftEditTargetMonth').value;
 
@@ -2015,18 +2017,14 @@
       var parts = targetMonth.split('-');
       var year = Number(parts[0]);
       var month = Number(parts[1]);
-      var filters = getShiftEditFilters();
 
       showLoading();
       google.script.run
         .withSuccessHandler(function(result) {
           hideLoading();
-          console.log('apiGetShiftDataFiltered result:', result);
           if (result && result.success) {
             shiftEditData = result;
-            renderShiftEditTable(result);
-            renderShiftDailyStatsTable(result);
-            renderShiftStatsTable(result);
+            applyFiltersAndRender();
             document.getElementById('shiftEditTableContainer').classList.remove('hidden');
             document.getElementById('btnConfirmArea').classList.remove('hidden');
             document.getElementById('diagnosticsPanel').classList.remove('hidden');
@@ -2040,10 +2038,69 @@
         })
         .withFailureHandler(function(error) {
           hideLoading();
-          console.error('apiGetShiftDataFiltered error:', error);
           alert('エラーが発生しました: ' + (error.message || error));
         })
-        .apiGetShiftDataFiltered(year, month, filters);
+        .apiGetShiftDataFiltered(year, month, {});
+    }
+
+    // クライアントサイドでフィルタリングしたデータを返す
+    function getFilteredShiftData() {
+      if (!shiftEditData) return null;
+
+      var filters = getShiftEditFilters();
+      var filtered = shiftEditData.staffShifts;
+
+      // グループフィルター
+      if (filters.groups && filters.groups.length > 0) {
+        filtered = filtered.filter(function(s) {
+          return filters.groups.indexOf(String(s.group)) !== -1;
+        });
+      }
+
+      // ユニットフィルター
+      if (filters.units && filters.units.length > 0) {
+        filtered = filtered.filter(function(s) {
+          return filters.units.indexOf(s.unit) !== -1;
+        });
+      }
+
+      // 雇用形態フィルター
+      if (filters.employmentTypes && filters.employmentTypes.length > 0) {
+        filtered = filtered.filter(function(s) {
+          return filters.employmentTypes.indexOf(s.employmentType) !== -1;
+        });
+      }
+
+      // 喀痰吸引資格者のみ
+      if (filters.suctionOnly) {
+        filtered = filtered.filter(function(s) { return s.hasSuction; });
+      }
+
+      // 勤務配慮ありのみ
+      if (filters.careOnly) {
+        filtered = filtered.filter(function(s) { return s.hasCare; });
+      }
+
+      // shiftEditDataのコピーにフィルター済みstaffShiftsを差し替え
+      return {
+        year: shiftEditData.year,
+        month: shiftEditData.month,
+        dateInfo: shiftEditData.dateInfo,
+        staffShifts: filtered,
+        statistics: null // 再計算が必要
+      };
+    }
+
+    // フィルター変更時にクライアントサイドで即座に再描画
+    function applyFiltersAndRender() {
+      if (!shiftEditData) return;
+
+      var viewData = getFilteredShiftData();
+      // フィルター済みデータで統計を再計算
+      recalculateStatisticsFor(viewData);
+      renderShiftEditTable(viewData);
+      renderShiftDailyStatsTable(viewData);
+      renderShiftStatsTable(viewData);
     }
 
     // シフト編集テーブルを描画
@@ -2142,10 +2199,11 @@
         }
       }
 
-      // 統計を再計算してテーブルを再描画
-      recalculateStatistics();
-      renderShiftDailyStatsTable(shiftEditData);
-      renderShiftStatsTable(shiftEditData);
+      // フィルター済みビューで統計を再計算して再描画
+      var viewData = getFilteredShiftData();
+      recalculateStatisticsFor(viewData);
+      renderShiftDailyStatsTable(viewData);
+      renderShiftStatsTable(viewData);
 
       // バックグラウンドでサーバーに保存（ローディング表示なし）
       // apiUpdateShift は氏名ベースなので氏名を渡す
@@ -2164,13 +2222,12 @@
         .apiUpdateShift(staffName, year, month, day, shiftName);
     }
 
-    // クライアントサイドで統計を再計算
-    function recalculateStatistics() {
-      if (!shiftEditData || !shiftEditData.staffShifts) return;
+    // 指定データの統計を計算してdata.statisticsにセット
+    function recalculateStatisticsFor(data) {
+      if (!data || !data.staffShifts) return;
 
-      var daysInMonth = shiftEditData.dateInfo.length;
+      var daysInMonth = data.dateInfo.length;
 
-      // SHIFT_YASUMI と SHIFT_YAKIN の表示名を取得
       var yasumiName = '';
       var yakinName = '';
       shiftMasterList.forEach(function(sm) {
@@ -2180,11 +2237,10 @@
       if (!yasumiName) yasumiName = '休み';
       if (!yakinName) yakinName = '夜勤';
 
-      shiftEditData.statistics = shiftEditData.staffShifts.map(function(staff) {
+      data.statistics = data.staffShifts.map(function(staff) {
         var workDays = 0;
         var trueHolidays = 0;
         var shiftCounts = {};
-        // 前月末日のシフト名（月初1日が夜勤明けかどうかの判定用）
         var prevShiftName = staff.prevMonthLastShift || '';
 
         for (var d = 1; d <= daysInMonth; d++) {
@@ -2195,13 +2251,11 @@
           shiftCounts[sn]++;
 
           if (sn === yasumiName) {
-            // 公休 = 休み AND 前日が夜勤ではない
             if (prevShiftName !== yakinName) {
               trueHolidays++;
             }
           } else {
             workDays++;
-            // 夜勤は日またぎで2日分勤務扱い
             if (sn === yakinName) workDays++;
           }
           prevShiftName = sn;
@@ -2214,6 +2268,11 @@
           shiftCounts: shiftCounts
         };
       });
+    }
+
+    // 旧互換: updateShiftCellから呼ばれる
+    function recalculateStatistics() {
+      recalculateStatisticsFor(shiftEditData);
     }
 
     // 統計テーブルを描画

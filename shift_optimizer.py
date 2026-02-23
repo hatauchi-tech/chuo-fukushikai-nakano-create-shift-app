@@ -13,6 +13,7 @@
 - 夜勤明けルール: 夜勤→休→休（翌日・翌々日は休み必須）
 - 資格者配置: 全日に喀痰吸引資格者を施設全体で最低1名配置（法的要件）
   → グループ単独ではなく全グループ合算で判定。最適化後に施設横断で検証。
+  → 夜勤帯も資格者最低1名を優遇（ソフト制約）
 - グループ別最低人数: 早出2名、日勤1名（日曜0可）、遅出1名、夜勤1名（ソフト制約）
 - 勤務配慮ありのスタッフは夜勤免除
 - 事前勤務指定（ASSIGN_職員ID_YYYYMMDD）をハード制約として固定
@@ -790,6 +791,25 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
             suction_penalties.append(no_suction * 100)
 
     # ============================================
+    # 制約8b: 喀痰吸引資格者の夜勤配置（ソフト制約）
+    # 夜間帯は夜勤者しかいないため、資格者が夜勤に入ることを優遇
+    # ============================================
+    suction_night_penalties = []
+    if len(suction_staff_indices) > 0:
+        for d in range(num_days):
+            suction_on_night = model.NewIntVar(0, len(suction_staff_indices), f'suction_night_d{d}')
+            model.Add(
+                suction_on_night == sum(
+                    shifts[(s, d, SHIFT_NIGHT)]
+                    for s in suction_staff_indices
+                )
+            )
+            no_suction_night = model.NewBoolVar(f'no_suction_night_d{d}')
+            model.Add(suction_on_night == 0).OnlyEnforceIf(no_suction_night)
+            model.Add(suction_on_night >= 1).OnlyEnforceIf(no_suction_night.Not())
+            suction_night_penalties.append(no_suction_night * 80)
+
+    # ============================================
     # 目的関数
     # ============================================
     objective_terms = []
@@ -802,6 +822,9 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
 
     # ソフト制約: 資格者不在ペナルティ
     objective_terms.extend(suction_penalties)
+
+    # ソフト制約: 資格者夜勤不在ペナルティ
+    objective_terms.extend(suction_night_penalties)
 
     # 公平性: 夜勤回数の分散を最小化
     night_counts = []
@@ -1057,6 +1080,33 @@ def optimize_shift_with_diagnostics(holiday_df, staff_df, settings_df, year, mon
                 print(f'      {month}/{day}: 勤務者{len(working_all)}名中、資格者0名')
         else:
             print(f'    OK: 全{days_in_month}日間、資格者が配置されています')
+
+        # 施設横断: 資格者の夜勤配置チェック
+        yakin_name = shift_name_by_key[SHIFT_KEY_YAKIN]
+        night_violation_days = []
+        for day in range(1, days_in_month + 1):
+            date_str = f'{year}-{str(month).zfill(2)}-{str(day).zfill(2)}'
+            day_shifts = combined_df[combined_df['勤務開始日'] == date_str]
+
+            night_qualified = day_shifts[
+                (day_shifts['職員ID'].astype(str).isin(suction_staff_ids)) &
+                (day_shifts['シフト名'] == yakin_name)
+            ]
+
+            if len(night_qualified) == 0:
+                night_violation_days.append(day)
+
+        if night_violation_days:
+            diagnostic.add_error(
+                '喀痰吸引資格者・夜勤（施設横断）',
+                f'全グループ合計で夜勤に資格者が不在の日: {night_violation_days}',
+                f'{len(night_violation_days)}日間、夜勤帯に資格者が1名もいません'
+            )
+            print(f'    夜勤 NG: {len(night_violation_days)}日間の違反あり')
+            for day in night_violation_days:
+                print(f'      {month}/{day}: 夜勤に資格者0名')
+        else:
+            print(f'    夜勤 OK: 全{days_in_month}日間、夜勤に資格者が配置されています')
 
     # 失敗グループへの対策提案
     for group in failed_groups:
