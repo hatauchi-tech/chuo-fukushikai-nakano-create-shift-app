@@ -668,6 +668,28 @@ function apiGetGroups() {
 }
 
 /**
+ * シフト修正画面用フィルター選択肢を取得
+ * グループ、ユニット、雇用形態の一覧を返す
+ */
+function apiGetShiftFilterOptions() {
+  try {
+    const staff = getActiveStaff();
+    const groups = [...new Set(staff.map(s => s['グループ']))].filter(g => g).sort();
+    const units = [...new Set(staff.map(s => s['ユニット']))].filter(u => u).sort();
+    const employmentTypes = [...new Set(staff.map(s => s['雇用形態']))].filter(e => e).sort();
+    return {
+      success: true,
+      groups: groups,
+      units: units,
+      employmentTypes: employmentTypes
+    };
+  } catch (e) {
+    console.error('フィルター選択肢取得エラー:', e);
+    return { success: false, message: e.message };
+  }
+}
+
+/**
  * シフトマスタ一覧を取得（シフト修正画面用）
  */
 function apiGetShiftMaster() {
@@ -681,21 +703,65 @@ function apiGetShiftMaster() {
 }
 
 /**
- * グループ別シフトデータを取得（修正画面用）
+ * フィルター条件付きシフトデータを取得（修正画面用）
  * @param {number} year - 対象年
  * @param {number} month - 対象月
- * @param {number} group - グループ番号
+ * @param {Object} filters - フィルター条件
+ *   filters.groups: グループ番号の配列（空=全て）
+ *   filters.units: ユニットの配列（空=全て）
+ *   filters.employmentTypes: 雇用形態の配列（空=全て）
+ *   filters.suctionOnly: 喀痰吸引資格者のみ（boolean）
+ *   filters.careOnly: 勤務配慮ありのみ（boolean）
  */
-function apiGetShiftDataByGroup(year, month, group) {
+function apiGetShiftDataFiltered(year, month, filters) {
   try {
-    console.log(`シフトデータ取得: ${year}年${month}月 グループ${group}`);
+    filters = filters || {};
+    console.log(`シフトデータ取得: ${year}年${month}月 フィルター:`, JSON.stringify(filters));
 
-    // グループに属する職員を取得
+    // 有効職員を全て取得し、フィルター適用
     const allStaff = getActiveStaff();
-    const groupStaff = allStaff.filter(s => String(s['グループ']) === String(group));
+    var filteredStaff = allStaff;
 
-    if (groupStaff.length === 0) {
-      return { success: false, message: `グループ${group}に職員がいません` };
+    // グループフィルター
+    if (filters.groups && filters.groups.length > 0) {
+      var groupStrings = filters.groups.map(function(g) { return String(g); });
+      filteredStaff = filteredStaff.filter(function(s) {
+        return groupStrings.indexOf(String(s['グループ'])) !== -1;
+      });
+    }
+
+    // ユニットフィルター
+    if (filters.units && filters.units.length > 0) {
+      filteredStaff = filteredStaff.filter(function(s) {
+        return filters.units.indexOf(s['ユニット']) !== -1;
+      });
+    }
+
+    // 雇用形態フィルター
+    if (filters.employmentTypes && filters.employmentTypes.length > 0) {
+      filteredStaff = filteredStaff.filter(function(s) {
+        return filters.employmentTypes.indexOf(s['雇用形態']) !== -1;
+      });
+    }
+
+    // 喀痰吸引資格者のみ
+    if (filters.suctionOnly) {
+      filteredStaff = filteredStaff.filter(function(s) {
+        var val = s['喀痰吸引資格者'];
+        return val === true || val === 'TRUE' || val === '有' || val === 'あり';
+      });
+    }
+
+    // 勤務配慮ありのみ
+    if (filters.careOnly) {
+      filteredStaff = filteredStaff.filter(function(s) {
+        var val = s['勤務配慮'];
+        return val === true || val === 'TRUE' || val === '有' || val === 'あり';
+      });
+    }
+
+    if (filteredStaff.length === 0) {
+      return { success: false, message: '条件に一致する職員がいません' };
     }
 
     // シフトマスタから動的にシフト名を取得
@@ -731,7 +797,7 @@ function apiGetShiftDataByGroup(year, month, group) {
     }
 
     // 職員ごとのシフトデータを構築
-    const staffShifts = groupStaff.map(staff => {
+    const staffShifts = filteredStaff.map(staff => {
       const staffName = staff['氏名'];
       const shifts = {};
 
@@ -795,10 +861,20 @@ function apiGetShiftDataByGroup(year, month, group) {
         prevMonthLastShift = nameResolution[rawPrev] || rawPrev;
       }
 
+      // 職員属性を判定
+      var suctionVal = staff['喀痰吸引資格者'];
+      var hasSuction = (suctionVal === true || suctionVal === 'TRUE' || suctionVal === '有' || suctionVal === 'あり');
+      var careVal = staff['勤務配慮'];
+      var hasCare = (careVal === true || careVal === 'TRUE' || careVal === '有' || careVal === 'あり');
+
       return {
         staffId: staff['職員ID'],
         name: staffName,
         group: staff['グループ'],
+        unit: staff['ユニット'] || '',
+        employmentType: staff['雇用形態'] || '',
+        hasSuction: hasSuction,
+        hasCare: hasCare,
         shifts: shifts,
         prevMonthLastShift: prevMonthLastShift
       };
@@ -811,7 +887,7 @@ function apiGetShiftDataByGroup(year, month, group) {
       success: true,
       year: year,
       month: month,
-      group: group,
+      filters: filters,
       dateInfo: dateInfo,
       staffShifts: staffShifts,
       statistics: statistics
@@ -821,6 +897,13 @@ function apiGetShiftDataByGroup(year, month, group) {
     console.error('シフトデータ取得エラー:', e);
     return { success: false, message: e.message };
   }
+}
+
+/**
+ * 旧API互換ラッパー（グループ指定のみ）
+ */
+function apiGetShiftDataByGroup(year, month, group) {
+  return apiGetShiftDataFiltered(year, month, { groups: [group] });
 }
 
 /**
@@ -1008,17 +1091,31 @@ function apiUpdateShift(staffName, year, month, day, shiftName) {
  * @param {number} month - 月
  * @param {number} group - グループ（省略時は全グループ）
  */
-function apiConfirmShifts(year, month, group) {
+function apiConfirmShifts(year, month, groupOrStaffIds) {
   try {
-    console.log(`シフト確定（カレンダーなし）: ${year}年${month}月 グループ${group || '全て'}`);
+    // 第3引数: 数値ならグループ番号、配列なら職員IDリスト
+    var staffIdFilter = null;
+    var groupFilter = null;
+    if (Array.isArray(groupOrStaffIds)) {
+      staffIdFilter = groupOrStaffIds.map(function(id) { return String(id); });
+      console.log('シフト確定（カレンダーなし）: ' + year + '年' + month + '月 職員' + staffIdFilter.length + '名');
+    } else if (groupOrStaffIds) {
+      groupFilter = String(groupOrStaffIds);
+      console.log('シフト確定（カレンダーなし）: ' + year + '年' + month + '月 グループ' + groupFilter);
+    } else {
+      console.log('シフト確定（カレンダーなし）: ' + year + '年' + month + '月 全て');
+    }
 
     var now = new Date();
     var registrationDate = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy/MM/dd HH:mm:ss');
 
     var shifts = getConfirmedShiftsByMonth(year, month);
-    var targetShifts = group
-      ? shifts.filter(function(s) { return String(s['グループ']) === String(group); })
-      : shifts;
+    var targetShifts = shifts;
+    if (staffIdFilter) {
+      targetShifts = shifts.filter(function(s) { return staffIdFilter.indexOf(String(s['職員ID'])) !== -1; });
+    } else if (groupFilter) {
+      targetShifts = shifts.filter(function(s) { return String(s['グループ']) === groupFilter; });
+    }
 
     var shiftMapConfirm = getShiftMasterMap().byKey;
     var N_YASUMI_CONFIRM = shiftMapConfirm[SHIFT_KEYS.YASUMI] || '休み';
@@ -1048,9 +1145,20 @@ function apiConfirmShifts(year, month, group) {
  * @param {number} month - 月
  * @param {number} group - グループ（省略時は全グループ）
  */
-function apiConfirmShiftsAndRegisterCalendar(year, month, group) {
+function apiConfirmShiftsAndRegisterCalendar(year, month, groupOrStaffIds) {
   try {
-    console.log(`シフト確定・カレンダー登録: ${year}年${month}月 グループ${group || '全て'}`);
+    // 第3引数: 配列なら職員IDリスト、数値/文字列ならグループ番号
+    var staffIdFilter = null;
+    var groupFilter = null;
+    if (Array.isArray(groupOrStaffIds)) {
+      staffIdFilter = groupOrStaffIds.map(function(id) { return String(id); });
+      console.log('シフト確定・カレンダー登録: ' + year + '年' + month + '月 職員' + staffIdFilter.length + '名');
+    } else if (groupOrStaffIds) {
+      groupFilter = String(groupOrStaffIds);
+      console.log('シフト確定・カレンダー登録: ' + year + '年' + month + '月 グループ' + groupFilter);
+    } else {
+      console.log('シフト確定・カレンダー登録: ' + year + '年' + month + '月 全て');
+    }
 
     // 登録日時を更新
     const now = new Date();
@@ -1058,9 +1166,12 @@ function apiConfirmShiftsAndRegisterCalendar(year, month, group) {
 
     // 対象シフトを取得
     const shifts = getConfirmedShiftsByMonth(year, month);
-    const targetShifts = group
-      ? shifts.filter(s => String(s['グループ']) === String(group))
-      : shifts;
+    var targetShifts = shifts;
+    if (staffIdFilter) {
+      targetShifts = shifts.filter(function(s) { return staffIdFilter.indexOf(String(s['職員ID'])) !== -1; });
+    } else if (groupFilter) {
+      targetShifts = shifts.filter(function(s) { return String(s['グループ']) === groupFilter; });
+    }
 
     const N_YASUMI_CAL = getShiftMasterMap().byKey[SHIFT_KEYS.YASUMI] || '休み';
     let registeredCount = 0;

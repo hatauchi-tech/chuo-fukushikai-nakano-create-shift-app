@@ -519,32 +519,60 @@
         <div class="bg-white rounded-lg shadow-lg p-6">
           <h2 class="text-2xl font-bold mb-4 text-gray-800">シフト修正</h2>
 
-          <!-- 操作パネル（横並び） -->
-          <div class="flex flex-wrap items-end gap-4 mb-6">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">対象月</label>
-              <input type="month" id="shiftEditTargetMonth"
-                class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">グループ</label>
-              <select id="shiftEditGroup"
-                class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                <option value="">-- 選択 --</option>
-              </select>
-            </div>
-            <button onclick="loadShiftEditData()" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">
-              表示
-            </button>
-            <button onclick="showView('shift-management')" class="bg-gray-500 text-white px-6 py-2 rounded-lg hover:bg-gray-600 transition">
-              戻る
-            </button>
-            <div id="btnConfirmArea" class="hidden ml-auto flex gap-2">
-              <button id="btnConfirmOnly" onclick="confirmShiftsOnly()" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition font-semibold">
-                確定
+          <!-- 操作パネル -->
+          <div class="mb-6">
+            <!-- 1段目: 対象月 + ボタン -->
+            <div class="flex flex-wrap items-end gap-4 mb-3">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">対象月</label>
+                <input type="month" id="shiftEditTargetMonth"
+                  class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+              </div>
+              <button onclick="loadShiftEditData()" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">
+                表示
               </button>
-              <button id="btnConfirmCalendar" onclick="confirmAndRegisterCalendar()" class="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition font-semibold">
-                Googleカレンダー登録して確定
+              <button onclick="showView('shift-management')" class="bg-gray-500 text-white px-6 py-2 rounded-lg hover:bg-gray-600 transition">
+                戻る
+              </button>
+              <div id="btnConfirmArea" class="hidden ml-auto flex gap-2">
+                <button id="btnConfirmOnly" onclick="confirmShiftsOnly()" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition font-semibold">
+                  確定
+                </button>
+                <button id="btnConfirmCalendar" onclick="confirmAndRegisterCalendar()" class="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition font-semibold">
+                  Googleカレンダー登録して確定
+                </button>
+              </div>
+            </div>
+            <!-- 2段目: フィルター -->
+            <div class="flex flex-wrap items-end gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">グループ</label>
+                <select id="shiftEditGroup" multiple
+                  class="px-2 py-1 border border-gray-300 rounded text-sm min-w-[100px]" style="height:60px;">
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">ユニット</label>
+                <select id="shiftEditUnit" multiple
+                  class="px-2 py-1 border border-gray-300 rounded text-sm min-w-[100px]" style="height:60px;">
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">雇用形態</label>
+                <select id="shiftEditEmployment" multiple
+                  class="px-2 py-1 border border-gray-300 rounded text-sm min-w-[100px]" style="height:60px;">
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="flex items-center gap-1 text-sm">
+                  <input type="checkbox" id="shiftEditSuctionOnly"> 喀痰吸引資格者のみ
+                </label>
+                <label class="flex items-center gap-1 text-sm">
+                  <input type="checkbox" id="shiftEditCareOnly"> 勤務配慮ありのみ
+                </label>
+              </div>
+              <button onclick="clearShiftEditFilters()" class="text-xs text-blue-600 hover:underline self-end pb-1">
+                フィルターをリセット
               </button>
             </div>
           </div>
@@ -555,6 +583,7 @@
             <div class="mb-3 flex flex-wrap gap-4 text-sm">
               <span class="flex items-center"><span class="w-4 h-4 bg-blue-100 border border-blue-300 mr-1"></span>土曜日</span>
               <span class="flex items-center"><span class="w-4 h-4 bg-pink-100 border border-pink-300 mr-1"></span>日曜・祝日</span>
+              <span class="flex items-center"><span class="w-4 h-4 border mr-1" style="background-color:#FFFDE7; border-color:#FDD835;"></span>喀痰吸引資格者</span>
             </div>
 
             <!-- シフトテーブル -->
@@ -1862,29 +1891,106 @@
       const targetMonth = document.getElementById('shiftEditTargetMonth');
       targetMonth.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-      // グループ一覧を取得
-      loadShiftEditGroups();
+      // フィルター選択肢を取得
+      loadShiftEditFilterOptions();
 
       // シフトマスタを取得
       loadShiftMasterForEdit();
     }
 
-    // グループ一覧を取得
-    function loadShiftEditGroups() {
+    // フィルター選択肢を取得
+    function loadShiftEditFilterOptions() {
       google.script.run
         .withSuccessHandler(function(result) {
           if (result.success) {
-            const select = document.getElementById('shiftEditGroup');
-            select.innerHTML = '<option value="">-- 選択 --</option>';
-            result.groups.forEach(g => {
-              select.innerHTML += `<option value="${g}">グループ ${g}</option>`;
+            // グループ
+            var groupSelect = document.getElementById('shiftEditGroup');
+            groupSelect.innerHTML = '';
+            result.groups.forEach(function(g) {
+              var opt = document.createElement('option');
+              opt.value = g;
+              opt.textContent = 'G' + g;
+              groupSelect.appendChild(opt);
+            });
+
+            // ユニット
+            var unitSelect = document.getElementById('shiftEditUnit');
+            unitSelect.innerHTML = '';
+            result.units.forEach(function(u) {
+              var opt = document.createElement('option');
+              opt.value = u;
+              opt.textContent = u;
+              unitSelect.appendChild(opt);
+            });
+
+            // 雇用形態
+            var empSelect = document.getElementById('shiftEditEmployment');
+            empSelect.innerHTML = '';
+            result.employmentTypes.forEach(function(e) {
+              var opt = document.createElement('option');
+              opt.value = e;
+              opt.textContent = e;
+              empSelect.appendChild(opt);
             });
           }
         })
         .withFailureHandler(function(error) {
-          console.error('グループ一覧取得エラー:', error);
+          console.error('フィルター選択肢取得エラー:', error);
         })
-        .apiGetGroups();
+        .apiGetShiftFilterOptions();
+    }
+
+    // フィルターをリセット
+    function clearShiftEditFilters() {
+      var groupSel = document.getElementById('shiftEditGroup');
+      var unitSel = document.getElementById('shiftEditUnit');
+      var empSel = document.getElementById('shiftEditEmployment');
+      for (var i = 0; i < groupSel.options.length; i++) groupSel.options[i].selected = false;
+      for (var i = 0; i < unitSel.options.length; i++) unitSel.options[i].selected = false;
+      for (var i = 0; i < empSel.options.length; i++) empSel.options[i].selected = false;
+      document.getElementById('shiftEditSuctionOnly').checked = false;
+      document.getElementById('shiftEditCareOnly').checked = false;
+    }
+
+    // 現在のフィルター条件を取得
+    function getShiftEditFilters() {
+      var filters = {};
+
+      var groupSel = document.getElementById('shiftEditGroup');
+      var selectedGroups = [];
+      for (var i = 0; i < groupSel.options.length; i++) {
+        if (groupSel.options[i].selected) selectedGroups.push(groupSel.options[i].value);
+      }
+      if (selectedGroups.length > 0 && selectedGroups.length < groupSel.options.length) {
+        filters.groups = selectedGroups;
+      }
+
+      var unitSel = document.getElementById('shiftEditUnit');
+      var selectedUnits = [];
+      for (var i = 0; i < unitSel.options.length; i++) {
+        if (unitSel.options[i].selected) selectedUnits.push(unitSel.options[i].value);
+      }
+      if (selectedUnits.length > 0 && selectedUnits.length < unitSel.options.length) {
+        filters.units = selectedUnits;
+      }
+
+      var empSel = document.getElementById('shiftEditEmployment');
+      var selectedEmp = [];
+      for (var i = 0; i < empSel.options.length; i++) {
+        if (empSel.options[i].selected) selectedEmp.push(empSel.options[i].value);
+      }
+      if (selectedEmp.length > 0 && selectedEmp.length < empSel.options.length) {
+        filters.employmentTypes = selectedEmp;
+      }
+
+      if (document.getElementById('shiftEditSuctionOnly').checked) {
+        filters.suctionOnly = true;
+      }
+      if (document.getElementById('shiftEditCareOnly').checked) {
+        filters.careOnly = true;
+      }
+
+      return filters;
     }
 
     // シフトマスタを取得
@@ -1903,15 +2009,10 @@
 
     // シフトデータを読み込み
     function loadShiftEditData() {
-      const targetMonth = document.getElementById('shiftEditTargetMonth').value;
-      const group = document.getElementById('shiftEditGroup').value;
+      var targetMonth = document.getElementById('shiftEditTargetMonth').value;
 
       if (!targetMonth) {
         alert('対象月を選択してください');
-        return;
-      }
-      if (!group) {
-        alert('グループを選択してください');
         return;
       }
 
@@ -1922,13 +2023,16 @@
         return;
       }
 
-      const [year, month] = targetMonth.split('-').map(Number);
+      var parts = targetMonth.split('-');
+      var year = Number(parts[0]);
+      var month = Number(parts[1]);
+      var filters = getShiftEditFilters();
 
       showLoading();
       google.script.run
         .withSuccessHandler(function(result) {
           hideLoading();
-          console.log('apiGetShiftDataByGroup result:', result);
+          console.log('apiGetShiftDataFiltered result:', result);
           if (result && result.success) {
             shiftEditData = result;
             renderShiftEditTable(result);
@@ -1947,57 +2051,71 @@
         })
         .withFailureHandler(function(error) {
           hideLoading();
-          console.error('apiGetShiftDataByGroup error:', error);
+          console.error('apiGetShiftDataFiltered error:', error);
           alert('エラーが発生しました: ' + (error.message || error));
         })
-        .apiGetShiftDataByGroup(year, month, parseInt(group));
+        .apiGetShiftDataFiltered(year, month, filters);
     }
 
     // シフト編集テーブルを描画
     function renderShiftEditTable(data) {
-      const table = document.getElementById('shiftEditTable');
-      const thead = table.querySelector('thead');
-      const tbody = table.querySelector('tbody');
+      var table = document.getElementById('shiftEditTable');
+      var thead = table.querySelector('thead');
+      var tbody = table.querySelector('tbody');
 
       // ヘッダー生成
-      let headerHtml = '<tr><th class="px-2 py-2 text-left sticky left-0 bg-gray-50 border-b border-r">氏名</th>';
-      data.dateInfo.forEach(d => {
-        let bgClass = '';
-        if (d.isSunday || d.isHoliday) {
-          bgClass = 'bg-pink-100';
-        } else if (d.isSaturday) {
-          bgClass = 'bg-blue-100';
-        }
-        const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
-        headerHtml += `<th class="px-1 py-2 text-center border-b ${bgClass}" style="min-width: 70px;">
-          <div class="text-xs">${d.day}</div>
-          <div class="text-xs text-gray-500">${dayNames[d.dayOfWeek]}</div>
-        </th>`;
+      var dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+      var headerHtml = '<tr><th class="px-2 py-2 text-left sticky left-0 bg-gray-50 border-b border-r" style="min-width:140px;">氏名</th>';
+      data.dateInfo.forEach(function(d) {
+        var bgClass = '';
+        if (d.isSunday || d.isHoliday) bgClass = 'bg-pink-100';
+        else if (d.isSaturday) bgClass = 'bg-blue-100';
+        headerHtml += '<th class="px-1 py-2 text-center border-b ' + bgClass + '" style="min-width: 70px;">' +
+          '<div class="text-xs">' + d.day + '</div>' +
+          '<div class="text-xs text-gray-500">' + dayNames[d.dayOfWeek] + '</div></th>';
       });
       headerHtml += '</tr>';
       thead.innerHTML = headerHtml;
 
-      // ボディ生成
-      let bodyHtml = '';
-      data.staffShifts.forEach(staff => {
-        bodyHtml += `<tr><td class="px-2 py-2 whitespace-nowrap sticky left-0 bg-white border-r font-medium">${staff.name}</td>`;
-        data.dateInfo.forEach(d => {
-          const shift = staff.shifts[d.day];
-          let bgClass = '';
-          if (d.isSunday || d.isHoliday) {
-            bgClass = 'bg-pink-50';
-          } else if (d.isSaturday) {
-            bgClass = 'bg-blue-50';
-          }
+      // SHIFT_YASUMIの表示名を事前取得
+      var yasumiEntry = shiftMasterList.find(function(sm) { return sm['シフトID'] === 'SHIFT_YASUMI'; });
+      var yasumiDisplayName = yasumiEntry ? yasumiEntry['シフト名'] : '休み';
 
-          // シフト選択プルダウン生成（SHIFT_YASUMIのシフト名を動的取得）
-          var yasumiEntry = shiftMasterList.find(function(sm) { return sm['シフトID'] === 'SHIFT_YASUMI'; });
-          var yasumiDisplayName = yasumiEntry ? yasumiEntry['シフト名'] : '休み';
-          let options = '<option value="' + yasumiDisplayName + '">' + yasumiDisplayName + '</option>';
-          shiftMasterList.forEach(sm => {
+      // ボディ生成
+      var bodyHtml = '';
+      data.staffShifts.forEach(function(staff) {
+        // 資格者行は薄い黄色背景
+        var rowBg = staff.hasSuction ? 'background-color:#FFFDE7;' : '';
+        var stickyBg = staff.hasSuction ? 'background-color:#FFFDE7;' : 'background-color:white;';
+
+        // 氏名セル：グループ・属性バッジ付き
+        var badges = '';
+        badges += '<span class="inline-block text-xs px-1 rounded bg-gray-200 text-gray-700 mr-0.5">G' + (staff.group || '') + '</span>';
+        if (staff.hasSuction) {
+          badges += '<span class="inline-block text-xs px-1 rounded bg-yellow-300 text-yellow-900 mr-0.5">資格</span>';
+        }
+        if (staff.hasCare) {
+          badges += '<span class="inline-block text-xs px-1 rounded bg-green-200 text-green-800 mr-0.5">配慮</span>';
+        }
+
+        bodyHtml += '<tr style="' + rowBg + '">';
+        bodyHtml += '<td class="px-2 py-1 whitespace-nowrap sticky left-0 border-r font-medium" style="' + stickyBg + '">';
+        bodyHtml += '<div class="text-sm">' + staff.name + '</div>';
+        bodyHtml += '<div class="leading-tight">' + badges + '</div>';
+        bodyHtml += '</td>';
+
+        data.dateInfo.forEach(function(d) {
+          var shift = staff.shifts[d.day];
+          var cellBg = '';
+          if (d.isSunday || d.isHoliday) cellBg = 'bg-pink-50';
+          else if (d.isSaturday) cellBg = 'bg-blue-50';
+
+          // シフト選択プルダウン生成
+          var options = '<option value="' + yasumiDisplayName + '">' + yasumiDisplayName + '</option>';
+          shiftMasterList.forEach(function(sm) {
             if (sm['シフトID'] !== 'SHIFT_YASUMI') {
-              const selected = shift.shiftName === sm['シフト名'] ? 'selected' : '';
-              options += `<option value="${sm['シフト名']}" ${selected}>${sm['シフト名']}</option>`;
+              var selected = shift.shiftName === sm['シフト名'] ? ' selected' : '';
+              options += '<option value="' + sm['シフト名'] + '"' + selected + '>' + sm['シフト名'] + '</option>';
             }
           });
           // 休みが選択されている場合
@@ -2005,12 +2123,11 @@
             options = options.replace('value="' + yasumiDisplayName + '"', 'value="' + yasumiDisplayName + '" selected');
           }
 
-          bodyHtml += `<td class="px-1 py-1 ${bgClass}">
-            <select onchange="updateShiftCell('${staff.name}', ${data.year}, ${data.month}, ${d.day}, this.value)"
-              class="w-full px-1 py-1 text-xs border border-gray-300 rounded">
-              ${options}
-            </select>
-          </td>`;
+          var escapedId = String(staff.staffId).replace(/'/g, "\\'");
+          bodyHtml += '<td class="px-1 py-1 ' + cellBg + '">' +
+            '<select onchange="updateShiftCell(\'' + escapedId + '\', ' + data.year + ', ' + data.month + ', ' + d.day + ', this.value)" ' +
+            'class="w-full px-1 py-1 text-xs border border-gray-300 rounded">' +
+            options + '</select></td>';
         });
         bodyHtml += '</tr>';
       });
@@ -2018,11 +2135,11 @@
     }
 
     // シフトセルを更新（クライアントサイドで即座に反映）
-    function updateShiftCell(staffName, year, month, day, shiftName) {
+    function updateShiftCell(staffId, year, month, day, shiftName) {
       if (!shiftEditData) return;
 
-      // ローカルデータを即座に更新
-      var staffEntry = shiftEditData.staffShifts.find(function(s) { return s.name === staffName; });
+      // ローカルデータを即座に更新（staffIdで検索）
+      var staffEntry = shiftEditData.staffShifts.find(function(s) { return String(s.staffId) === String(staffId); });
       if (staffEntry && staffEntry.shifts[day]) {
         staffEntry.shifts[day].shiftName = shiftName;
         // 時間情報も更新
@@ -2042,17 +2159,17 @@
       renderShiftStatsTable(shiftEditData);
 
       // バックグラウンドでサーバーに保存（ローディング表示なし）
+      // apiUpdateShift は氏名ベースなので氏名を渡す
+      var staffName = staffEntry ? staffEntry.name : '';
       google.script.run
         .withSuccessHandler(function(result) {
           if (!result.success) {
             console.error('シフト保存エラー:', result.message);
-            // 失敗時はフルリロードで整合性を回復
             loadShiftEditData();
           }
         })
         .withFailureHandler(function(error) {
           console.error('シフト保存エラー:', error);
-          // 失敗時はフルリロードで整合性を回復
           loadShiftEditData();
         })
         .apiUpdateShift(staffName, year, month, day, shiftName);
@@ -2208,6 +2325,12 @@
       tbody.innerHTML = bodyHtml;
     }
 
+    // 表示中の職員IDリストを取得
+    function getDisplayedStaffIds() {
+      if (!shiftEditData || !shiftEditData.staffShifts) return [];
+      return shiftEditData.staffShifts.map(function(s) { return s.staffId; });
+    }
+
     // 確定のみ（カレンダー登録なし）
     function confirmShiftsOnly() {
       if (!shiftEditData) {
@@ -2217,9 +2340,10 @@
 
       var year = shiftEditData.year;
       var month = shiftEditData.month;
-      var group = shiftEditData.group;
+      var staffIds = getDisplayedStaffIds();
+      var staffCount = staffIds.length;
 
-      if (!confirm('グループ' + group + 'の' + year + '年' + month + '月シフトを確定しますか？\n\n確定すると登録日時が記録されます。')) {
+      if (!confirm('表示中の' + staffCount + '名の' + year + '年' + month + '月シフトを確定しますか？\n\n確定すると登録日時が記録されます。')) {
         return;
       }
 
@@ -2238,7 +2362,7 @@
           hideLoading();
           alert('エラーが発生しました: ' + (error.message || error));
         })
-        .apiConfirmShifts(year, month, parseInt(group));
+        .apiConfirmShifts(year, month, staffIds);
     }
 
     // 確定してカレンダー登録
@@ -2248,9 +2372,12 @@
         return;
       }
 
-      const { year, month, group } = shiftEditData;
+      var year = shiftEditData.year;
+      var month = shiftEditData.month;
+      var staffIds = getDisplayedStaffIds();
+      var staffCount = staffIds.length;
 
-      if (!confirm(`グループ${group}の${year}年${month}月シフトを確定してカレンダーに登録しますか？\n\n確定すると:\n・登録日時が記録されます\n・Googleカレンダーに予定が登録されます`)) {
+      if (!confirm('表示中の' + staffCount + '名の' + year + '年' + month + '月シフトを確定してカレンダーに登録しますか？\n\n確定すると:\n・登録日時が記録されます\n・Googleカレンダーに予定が登録されます')) {
         return;
       }
 
@@ -2259,19 +2386,18 @@
         .withSuccessHandler(function(result) {
           hideLoading();
           if (result.success) {
-            alert(`✅ ${result.message}`);
-            // データを再読み込み
+            alert(result.message);
             loadShiftEditData();
           } else {
-            alert('❌ エラー: ' + result.message);
+            alert('エラー: ' + result.message);
           }
         })
         .withFailureHandler(function(error) {
           hideLoading();
-          alert('❌ エラーが発生しました');
+          alert('エラーが発生しました');
           console.error(error);
         })
-        .apiConfirmShiftsAndRegisterCalendar(year, month, group);
+        .apiConfirmShiftsAndRegisterCalendar(year, month, staffIds);
     }
 
     var diagnosticsData = null;
