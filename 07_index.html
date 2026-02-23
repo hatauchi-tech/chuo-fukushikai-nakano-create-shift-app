@@ -520,60 +520,61 @@
           <h2 class="text-2xl font-bold mb-4 text-gray-800">シフト修正</h2>
 
           <!-- 操作パネル -->
-          <div class="mb-6">
-            <!-- 1段目: 対象月 + ボタン -->
-            <div class="flex flex-wrap items-end gap-4 mb-3">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">対象月</label>
+          <div class="mb-4">
+            <div class="flex flex-wrap items-start gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <!-- 対象月 -->
+              <div class="flex flex-col">
+                <label class="text-xs font-medium text-gray-600 mb-1">対象月</label>
                 <input type="month" id="shiftEditTargetMonth"
-                  class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                  class="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500">
               </div>
-              <button onclick="loadShiftEditData()" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">
-                表示
-              </button>
-              <button onclick="showView('shift-management')" class="bg-gray-500 text-white px-6 py-2 rounded-lg hover:bg-gray-600 transition">
-                戻る
-              </button>
-              <div id="btnConfirmArea" class="hidden ml-auto flex gap-2">
-                <button id="btnConfirmOnly" onclick="confirmShiftsOnly()" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition font-semibold">
-                  確定
-                </button>
-                <button id="btnConfirmCalendar" onclick="confirmAndRegisterCalendar()" class="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition font-semibold">
-                  Googleカレンダー登録して確定
-                </button>
+              <!-- グループ -->
+              <div class="flex flex-col">
+                <label class="text-xs font-medium text-gray-600 mb-1">グループ</label>
+                <div id="shiftEditGroup" class="flex flex-wrap gap-x-2 gap-y-0.5"></div>
               </div>
-            </div>
-            <!-- 2段目: フィルター -->
-            <div class="flex flex-wrap items-end gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
-              <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1">グループ</label>
-                <select id="shiftEditGroup" multiple
-                  class="px-2 py-1 border border-gray-300 rounded text-sm min-w-[100px]" style="height:60px;">
-                </select>
+              <!-- ユニット -->
+              <div class="flex flex-col">
+                <label class="text-xs font-medium text-gray-600 mb-1">ユニット</label>
+                <div id="shiftEditUnit" class="flex flex-wrap gap-x-2 gap-y-0.5"></div>
               </div>
-              <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1">ユニット</label>
-                <select id="shiftEditUnit" multiple
-                  class="px-2 py-1 border border-gray-300 rounded text-sm min-w-[100px]" style="height:60px;">
-                </select>
+              <!-- 雇用形態 -->
+              <div class="flex flex-col">
+                <label class="text-xs font-medium text-gray-600 mb-1">雇用形態</label>
+                <div id="shiftEditEmployment" class="flex flex-wrap gap-x-2 gap-y-0.5"></div>
               </div>
-              <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1">雇用形態</label>
-                <select id="shiftEditEmployment" multiple
-                  class="px-2 py-1 border border-gray-300 rounded text-sm min-w-[100px]" style="height:60px;">
-                </select>
-              </div>
-              <div class="flex flex-col gap-1">
-                <label class="flex items-center gap-1 text-sm">
+              <!-- 属性フィルター -->
+              <div class="flex flex-col gap-0.5 pt-4">
+                <label class="flex items-center gap-1 text-xs cursor-pointer">
                   <input type="checkbox" id="shiftEditSuctionOnly"> 喀痰吸引資格者のみ
                 </label>
-                <label class="flex items-center gap-1 text-sm">
+                <label class="flex items-center gap-1 text-xs cursor-pointer">
                   <input type="checkbox" id="shiftEditCareOnly"> 勤務配慮ありのみ
                 </label>
               </div>
-              <button onclick="clearShiftEditFilters()" class="text-xs text-blue-600 hover:underline self-end pb-1">
-                フィルターをリセット
-              </button>
+              <!-- ボタン群 -->
+              <div class="flex flex-col gap-1 pt-3">
+                <div class="flex gap-2">
+                  <button onclick="loadShiftEditData()" class="bg-blue-600 text-white px-4 py-1.5 rounded text-sm hover:bg-blue-700 transition">
+                    表示
+                  </button>
+                  <button onclick="showView('shift-management')" class="bg-gray-500 text-white px-4 py-1.5 rounded text-sm hover:bg-gray-600 transition">
+                    戻る
+                  </button>
+                </div>
+                <button onclick="clearShiftEditFilters()" class="text-xs text-blue-600 hover:underline">
+                  フィルターをリセット
+                </button>
+              </div>
+              <!-- 確定ボタン（右寄せ） -->
+              <div id="btnConfirmArea" class="hidden ml-auto flex gap-2 pt-3">
+                <button id="btnConfirmOnly" onclick="confirmShiftsOnly()" class="bg-blue-600 text-white px-4 py-1.5 rounded text-sm hover:bg-blue-700 transition font-semibold">
+                  確定
+                </button>
+                <button id="btnConfirmCalendar" onclick="confirmAndRegisterCalendar()" class="bg-red-600 text-white px-4 py-1.5 rounded text-sm hover:bg-red-700 transition font-semibold">
+                  Googleカレンダー登録して確定
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1898,40 +1899,31 @@
       loadShiftMasterForEdit();
     }
 
+    // チェックボックスグループを生成するヘルパー
+    function buildCheckboxGroup(containerId, items, labelFn) {
+      var container = document.getElementById(containerId);
+      container.innerHTML = '';
+      items.forEach(function(val) {
+        var label = document.createElement('label');
+        label.className = 'flex items-center gap-0.5 text-xs cursor-pointer whitespace-nowrap';
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = val;
+        cb.className = 'filter-cb-' + containerId;
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(labelFn ? labelFn(val) : val));
+        container.appendChild(label);
+      });
+    }
+
     // フィルター選択肢を取得
     function loadShiftEditFilterOptions() {
       google.script.run
         .withSuccessHandler(function(result) {
           if (result.success) {
-            // グループ
-            var groupSelect = document.getElementById('shiftEditGroup');
-            groupSelect.innerHTML = '';
-            result.groups.forEach(function(g) {
-              var opt = document.createElement('option');
-              opt.value = g;
-              opt.textContent = 'G' + g;
-              groupSelect.appendChild(opt);
-            });
-
-            // ユニット
-            var unitSelect = document.getElementById('shiftEditUnit');
-            unitSelect.innerHTML = '';
-            result.units.forEach(function(u) {
-              var opt = document.createElement('option');
-              opt.value = u;
-              opt.textContent = u;
-              unitSelect.appendChild(opt);
-            });
-
-            // 雇用形態
-            var empSelect = document.getElementById('shiftEditEmployment');
-            empSelect.innerHTML = '';
-            result.employmentTypes.forEach(function(e) {
-              var opt = document.createElement('option');
-              opt.value = e;
-              opt.textContent = e;
-              empSelect.appendChild(opt);
-            });
+            buildCheckboxGroup('shiftEditGroup', result.groups, function(g) { return 'G' + g; });
+            buildCheckboxGroup('shiftEditUnit', result.units);
+            buildCheckboxGroup('shiftEditEmployment', result.employmentTypes);
           }
         })
         .withFailureHandler(function(error) {
@@ -1942,45 +1934,42 @@
 
     // フィルターをリセット
     function clearShiftEditFilters() {
-      var groupSel = document.getElementById('shiftEditGroup');
-      var unitSel = document.getElementById('shiftEditUnit');
-      var empSel = document.getElementById('shiftEditEmployment');
-      for (var i = 0; i < groupSel.options.length; i++) groupSel.options[i].selected = false;
-      for (var i = 0; i < unitSel.options.length; i++) unitSel.options[i].selected = false;
-      for (var i = 0; i < empSel.options.length; i++) empSel.options[i].selected = false;
+      document.querySelectorAll('#shiftEditGroup input, #shiftEditUnit input, #shiftEditEmployment input').forEach(function(cb) {
+        cb.checked = false;
+      });
       document.getElementById('shiftEditSuctionOnly').checked = false;
       document.getElementById('shiftEditCareOnly').checked = false;
+    }
+
+    // チェックされた値を取得するヘルパー
+    function getCheckedValues(containerId) {
+      var values = [];
+      document.querySelectorAll('#' + containerId + ' input:checked').forEach(function(cb) {
+        values.push(cb.value);
+      });
+      return values;
     }
 
     // 現在のフィルター条件を取得
     function getShiftEditFilters() {
       var filters = {};
 
-      var groupSel = document.getElementById('shiftEditGroup');
-      var selectedGroups = [];
-      for (var i = 0; i < groupSel.options.length; i++) {
-        if (groupSel.options[i].selected) selectedGroups.push(groupSel.options[i].value);
-      }
-      if (selectedGroups.length > 0 && selectedGroups.length < groupSel.options.length) {
-        filters.groups = selectedGroups;
+      var groups = getCheckedValues('shiftEditGroup');
+      var totalGroups = document.querySelectorAll('#shiftEditGroup input').length;
+      if (groups.length > 0 && groups.length < totalGroups) {
+        filters.groups = groups;
       }
 
-      var unitSel = document.getElementById('shiftEditUnit');
-      var selectedUnits = [];
-      for (var i = 0; i < unitSel.options.length; i++) {
-        if (unitSel.options[i].selected) selectedUnits.push(unitSel.options[i].value);
-      }
-      if (selectedUnits.length > 0 && selectedUnits.length < unitSel.options.length) {
-        filters.units = selectedUnits;
+      var units = getCheckedValues('shiftEditUnit');
+      var totalUnits = document.querySelectorAll('#shiftEditUnit input').length;
+      if (units.length > 0 && units.length < totalUnits) {
+        filters.units = units;
       }
 
-      var empSel = document.getElementById('shiftEditEmployment');
-      var selectedEmp = [];
-      for (var i = 0; i < empSel.options.length; i++) {
-        if (empSel.options[i].selected) selectedEmp.push(empSel.options[i].value);
-      }
-      if (selectedEmp.length > 0 && selectedEmp.length < empSel.options.length) {
-        filters.employmentTypes = selectedEmp;
+      var emp = getCheckedValues('shiftEditEmployment');
+      var totalEmp = document.querySelectorAll('#shiftEditEmployment input').length;
+      if (emp.length > 0 && emp.length < totalEmp) {
+        filters.employmentTypes = emp;
       }
 
       if (document.getElementById('shiftEditSuctionOnly').checked) {
