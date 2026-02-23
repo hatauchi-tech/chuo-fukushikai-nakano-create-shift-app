@@ -650,8 +650,8 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
                 # 月初日: 前月末が夜勤なら休みでも公休外（夜勤明け）
                 if prev_last_shift.get(s) == 'SHIFT_YAKIN':
                     # 前月末が夜勤 → 1日の休みは夜勤明け、公休にカウントしない
-                    not_holiday = model.NewConstant(0)
-                    true_holidays.append(not_holiday)
+                    # 前月末が夜勤 → 1日の休みは公休外（何も追加しない）
+                    pass
                 else:
                     true_holidays.append(shifts[(s, d, SHIFT_REST)])
             else:
@@ -764,18 +764,28 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
         min_staff_penalties.append(night_short * 50)
 
     # ============================================
-    # 制約8: 喀痰吸引資格者配置（法的要件のため常に強制）
+    # 制約8: 喀痰吸引資格者配置（ソフト制約・グループ単位）
+    # 法的要件は「全グループ合計で毎日1名以上」であり、グループ単独の
+    # ハード制約にすると資格者が少ないグループで解が見つからなくなる。
+    # グループ内で資格者が勤務していない日にペナルティを加える。
     # ============================================
+    suction_penalties = []
     suction_staff_indices = [i for i in range(num_staff) if staff_has_suction[i]]
     if len(suction_staff_indices) > 0:
         for d in range(num_days):
+            suction_working = model.NewIntVar(0, len(suction_staff_indices), f'suction_working_d{d}')
             model.Add(
-                sum(
+                suction_working == sum(
                     shifts[(s, d, t)]
                     for s in suction_staff_indices
                     for t in [SHIFT_EARLY, SHIFT_DAY, SHIFT_LATE, SHIFT_NIGHT]
-                ) >= 1
+                )
             )
+            no_suction = model.NewBoolVar(f'no_suction_d{d}')
+            model.Add(suction_working == 0).OnlyEnforceIf(no_suction)
+            model.Add(suction_working >= 1).OnlyEnforceIf(no_suction.Not())
+            # 資格者不在日にペナルティ（重い：100点）
+            suction_penalties.append(no_suction * 100)
 
     # ============================================
     # 目的関数
@@ -787,6 +797,9 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
 
     # ソフト制約: 最低人数不足ペナルティ
     objective_terms.extend(min_staff_penalties)
+
+    # ソフト制約: 資格者不在ペナルティ
+    objective_terms.extend(suction_penalties)
 
     # 公平性: 夜勤回数の分散を最小化
     night_counts = []
