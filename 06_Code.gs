@@ -862,8 +862,9 @@ function calculateShiftStatistics(staffShifts, daysInMonth) {
 
   return staffShifts.map(staff => {
     let workDays = 0;
-    let restDays = 0;
+    let trueHolidays = 0;
     const shiftCounts = {};
+    let prevShiftName = '';
 
     for (let d = 1; d <= daysInMonth; d++) {
       const shift = staff.shifts[d];
@@ -875,20 +876,23 @@ function calculateShiftStatistics(staffShifts, daysInMonth) {
       shiftCounts[shiftName]++;
 
       if (shiftName === N_YASUMI) {
-        restDays++;
+        // 公休 = 休み AND 前日が夜勤ではない
+        if (prevShiftName !== N_YAKIN) {
+          trueHolidays++;
+        }
       } else {
         workDays++;
-        // 夜勤は2日分換算
         if (shiftName === N_YAKIN) {
           workDays++;
         }
       }
+      prevShiftName = shiftName;
     }
 
     return {
       name: staff.name,
       workDays: workDays,
-      restDays: restDays,
+      restDays: trueHolidays,
       shiftCounts: shiftCounts
     };
   });

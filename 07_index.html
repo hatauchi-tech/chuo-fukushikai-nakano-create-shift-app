@@ -2076,8 +2076,9 @@
 
       shiftEditData.statistics = shiftEditData.staffShifts.map(function(staff) {
         var workDays = 0;
-        var restDays = 0;
+        var trueHolidays = 0;
         var shiftCounts = {};
+        var prevShiftName = '';
 
         for (var d = 1; d <= daysInMonth; d++) {
           var shift = staff.shifts[d];
@@ -2087,17 +2088,21 @@
           shiftCounts[sn]++;
 
           if (sn === yasumiName) {
-            restDays++;
+            // 公休 = 休み AND 前日が夜勤ではない
+            if (prevShiftName !== yakinName) {
+              trueHolidays++;
+            }
           } else {
             workDays++;
             if (sn === yakinName) workDays++;
           }
+          prevShiftName = sn;
         }
 
         return {
           name: staff.name,
           workDays: workDays,
-          restDays: restDays,
+          restDays: trueHolidays,
           shiftCounts: shiftCounts
         };
       });
@@ -2176,7 +2181,7 @@
       let headerHtml = '<tr>';
       headerHtml += '<th class="px-3 py-2 text-left border-b">氏名</th>';
       headerHtml += '<th class="px-3 py-2 text-center border-b">勤務日数</th>';
-      headerHtml += '<th class="px-3 py-2 text-center border-b">休日数</th>';
+      headerHtml += '<th class="px-3 py-2 text-center border-b">公休数</th>';
       shiftNames.forEach(name => {
         headerHtml += `<th class="px-3 py-2 text-center border-b">${name}</th>`;
       });
