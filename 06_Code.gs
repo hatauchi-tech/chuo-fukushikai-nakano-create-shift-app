@@ -1137,6 +1137,10 @@ function apiRunDiagnostics(year, month) {
     // 個人ルールチェック
     staffNames.forEach(function(name) {
       var entry = staffShiftMap[name];
+      var staffInfo = entry.staffInfo;
+      var displayName = staffInfo['氏名'] || name;
+      var staffGroup = staffInfo['グループ'] || '';
+      var label = displayName + '(G' + staffGroup + ')';
       var consecutiveDays = 0;
       var consecutiveStart = 0;
       var workDays = 0;
@@ -1149,7 +1153,8 @@ function apiRunDiagnostics(year, month) {
           consecutiveDays++;
           if (consecutiveDays >= 6) {
             violations.push({ type: '連勤制限違反', level: 'error', day: d,
-              message: name + ': ' + consecutiveStart + '日〜' + d + '日 (' + consecutiveDays + '連勤)' });
+              staffId: name, staffName: displayName, group: staffGroup,
+              message: label + ': ' + consecutiveStart + '日〜' + d + '日 (' + consecutiveDays + '連勤)' });
           }
         } else { consecutiveDays = 0; }
 
@@ -1158,24 +1163,28 @@ function apiRunDiagnostics(year, month) {
 
         if (d < daysInMonth && s === N_OSODE && entry.shifts[d + 1] === N_HAYADE) {
           violations.push({ type: 'インターバル違反', level: 'error', day: d,
-            message: name + ': ' + d + '日' + N_OSODE + ' → ' + (d + 1) + '日' + N_HAYADE });
+            staffId: name, staffName: displayName, group: staffGroup,
+            message: label + ': ' + d + '日' + N_OSODE + ' → ' + (d + 1) + '日' + N_HAYADE });
         }
 
         if (s === N_YAKIN) {
           if (d + 1 <= daysInMonth && entry.shifts[d + 1] !== N_YASUMI) {
             violations.push({ type: '夜勤明け違反', level: 'error', day: d + 1,
-              message: name + ': ' + d + '日' + N_YAKIN + '後、' + (d + 1) + '日が' + N_YASUMI + 'ではない' });
+              staffId: name, staffName: displayName, group: staffGroup,
+              message: label + ': ' + d + '日' + N_YAKIN + '後、' + (d + 1) + '日が' + N_YASUMI + 'ではない' });
           }
           if (d + 2 <= daysInMonth && entry.shifts[d + 2] !== N_YASUMI) {
             violations.push({ type: '夜勤明け違反', level: 'error', day: d + 2,
-              message: name + ': ' + d + '日' + N_YAKIN + '後、' + (d + 2) + '日が' + N_YASUMI + 'ではない' });
+              staffId: name, staffName: displayName, group: staffGroup,
+              message: label + ': ' + d + '日' + N_YAKIN + '後、' + (d + 2) + '日が' + N_YASUMI + 'ではない' });
           }
         }
       }
 
       if (workDays > 21) {
         violations.push({ type: '勤務日数超過', level: 'error', day: null,
-          message: name + ': 勤務日数' + workDays + '日（上限21日）' });
+          staffId: name, staffName: displayName, group: staffGroup,
+          message: label + ': 勤務日数' + workDays + '日（上限21日）' });
       }
     });
 
@@ -1226,9 +1235,18 @@ function apiRunDiagnostics(year, month) {
     var allIssues = violations.concat(warnings);
     allIssues.sort(function(a, b) { return (a.day || 0) - (b.day || 0); });
 
+    // フィルター用: 職員リストとグループリストを生成
+    var staffList = allStaff.map(function(s) {
+      return { staffId: s['職員ID'], name: s['氏名'], group: s['グループ'] };
+    });
+    var groupSet = {};
+    allStaff.forEach(function(s) { if (s['グループ']) groupSet[s['グループ']] = true; });
+    var groupList = Object.keys(groupSet).sort();
+
     return {
       success: true, hasData: true,
       violations: violations, warnings: warnings,
+      staffList: staffList, groupList: groupList,
       summary: { total: allIssues.length, error: violations.length, warning: warnings.length },
       message: '診断完了: エラー' + violations.length + '件、警告' + warnings.length + '件'
     };

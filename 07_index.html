@@ -600,6 +600,15 @@
               </div>
               <div id="diagnosticsResult" class="hidden">
                 <div id="diagnosticsSummary" class="flex gap-4 mb-4"></div>
+                <div id="diagnosticsFilters" class="hidden flex gap-4 mb-4 items-center">
+                  <label class="text-sm font-medium text-gray-600">フィルター:</label>
+                  <select id="diagnosticsGroupFilter" onchange="applyDiagnosticsFilter()" class="px-3 py-1 border border-gray-300 rounded text-sm">
+                    <option value="">全グループ</option>
+                  </select>
+                  <select id="diagnosticsStaffFilter" onchange="applyDiagnosticsFilter()" class="px-3 py-1 border border-gray-300 rounded text-sm">
+                    <option value="">全職員</option>
+                  </select>
+                </div>
                 <div id="diagnosticsList"></div>
               </div>
               <p id="diagnosticsEmpty" class="text-gray-500 text-sm">
@@ -2256,6 +2265,8 @@
         .apiConfirmShiftsAndRegisterCalendar(year, month, group);
     }
 
+    var diagnosticsData = null;
+
     function runDiagnostics() {
       var targetMonth = document.getElementById('shiftEditTargetMonth').value;
       if (!targetMonth) { alert('対象月を選択してください'); return; }
@@ -2268,6 +2279,8 @@
           hideLoading();
           if (!result.success) { alert('エラー: ' + result.message); return; }
 
+          diagnosticsData = result;
+
           document.getElementById('diagnosticsEmpty').classList.add('hidden');
           document.getElementById('diagnosticsResult').classList.remove('hidden');
 
@@ -2277,6 +2290,7 @@
           if (!result.hasData) {
             summaryEl.textContent = '確定シフトデータがありません';
             document.getElementById('diagnosticsList').textContent = '';
+            document.getElementById('diagnosticsFilters').classList.add('hidden');
             return;
           }
 
@@ -2293,46 +2307,42 @@
           warnSpan.textContent = '警告: ' + result.summary.warning + '件';
           summaryEl.appendChild(warnSpan);
 
-          var listEl = document.getElementById('diagnosticsList');
-          listEl.textContent = '';
-
-          if (result.summary.total === 0) {
-            listEl.textContent = 'ルール違反は見つかりませんでした';
-            return;
+          // フィルタードロップダウンを構築
+          var groupFilter = document.getElementById('diagnosticsGroupFilter');
+          groupFilter.textContent = '';
+          var allGroupOpt = document.createElement('option');
+          allGroupOpt.value = '';
+          allGroupOpt.textContent = '全グループ';
+          groupFilter.appendChild(allGroupOpt);
+          if (result.groupList) {
+            result.groupList.forEach(function(g) {
+              var opt = document.createElement('option');
+              opt.value = g;
+              opt.textContent = 'グループ' + g;
+              groupFilter.appendChild(opt);
+            });
           }
 
-          // タイプ別グループ化してDOM構築
-          var grouped = {};
-          result.violations.concat(result.warnings).forEach(function(v) {
-            if (!grouped[v.type]) grouped[v.type] = [];
-            grouped[v.type].push(v);
-          });
-
-          Object.keys(grouped).forEach(function(type) {
-            var items = grouped[type];
-            var isError = items[0].level === 'error';
-
-            var wrapper = document.createElement('div');
-            wrapper.className = 'mb-4 border rounded-lg overflow-hidden ' +
-              (isError ? 'border-red-200' : 'border-yellow-200');
-
-            var header = document.createElement('div');
-            header.className = 'px-4 py-2 font-semibold ' +
-              (isError ? 'bg-red-50 text-red-800' : 'bg-yellow-50 text-yellow-800');
-            header.textContent = (isError ? 'エラー: ' : '警告: ') + type + ' (' + items.length + '件)';
-            wrapper.appendChild(header);
-
-            var ul = document.createElement('ul');
-            ul.className = 'divide-y divide-gray-100';
-            items.forEach(function(item) {
-              var li = document.createElement('li');
-              li.className = 'px-4 py-2 text-sm text-gray-700';
-              li.textContent = item.message;
-              ul.appendChild(li);
+          var staffFilter = document.getElementById('diagnosticsStaffFilter');
+          staffFilter.textContent = '';
+          var allStaffOpt = document.createElement('option');
+          allStaffOpt.value = '';
+          allStaffOpt.textContent = '全職員';
+          staffFilter.appendChild(allStaffOpt);
+          if (result.staffList) {
+            result.staffList.forEach(function(s) {
+              var opt = document.createElement('option');
+              opt.value = s.name;
+              opt.textContent = s.name + '(G' + s.group + ')';
+              staffFilter.appendChild(opt);
             });
-            wrapper.appendChild(ul);
-            listEl.appendChild(wrapper);
-          });
+          }
+
+          document.getElementById('diagnosticsFilters').classList.remove('hidden');
+
+          // 全件表示
+          var allItems = result.violations.concat(result.warnings);
+          renderDiagnosticsList(allItems);
         })
         .withFailureHandler(function(error) {
           hideLoading();
@@ -2340,6 +2350,65 @@
           console.error(error);
         })
         .apiRunDiagnostics(year, month);
+    }
+
+    function applyDiagnosticsFilter() {
+      if (!diagnosticsData) return;
+
+      var groupVal = document.getElementById('diagnosticsGroupFilter').value;
+      var staffVal = document.getElementById('diagnosticsStaffFilter').value;
+
+      var allItems = diagnosticsData.violations.concat(diagnosticsData.warnings);
+      var filtered = allItems.filter(function(item) {
+        if (groupVal && String(item.group) !== String(groupVal)) return false;
+        if (staffVal && item.staffName !== staffVal) return false;
+        return true;
+      });
+
+      renderDiagnosticsList(filtered);
+    }
+
+    function renderDiagnosticsList(items) {
+      var listEl = document.getElementById('diagnosticsList');
+      listEl.textContent = '';
+
+      if (items.length === 0) {
+        listEl.textContent = '該当するルール違反は見つかりませんでした';
+        return;
+      }
+
+      // タイプ別グループ化してDOM構築
+      var grouped = {};
+      items.forEach(function(v) {
+        if (!grouped[v.type]) grouped[v.type] = [];
+        grouped[v.type].push(v);
+      });
+
+      Object.keys(grouped).forEach(function(type) {
+        var typeItems = grouped[type];
+        var isError = typeItems[0].level === 'error';
+
+        var wrapper = document.createElement('div');
+        wrapper.className = 'mb-4 border rounded-lg overflow-hidden ' +
+          (isError ? 'border-red-200' : 'border-yellow-200');
+
+        var header = document.createElement('div');
+        header.className = 'px-4 py-2 font-semibold ' +
+          (isError ? 'bg-red-50 text-red-800' : 'bg-yellow-50 text-yellow-800');
+        header.textContent = (isError ? 'エラー: ' : '警告: ') + type + ' (' + typeItems.length + '件)';
+        wrapper.appendChild(header);
+
+        var ul = document.createElement('ul');
+        ul.className = 'divide-y divide-gray-100';
+        typeItems.forEach(function(item) {
+          var li = document.createElement('li');
+          li.className = 'px-4 py-2 text-sm text-gray-700';
+          li.textContent = item.message;
+          ul.appendChild(li);
+        });
+        wrapper.appendChild(ul);
+        listEl.appendChild(wrapper);
+      });
     }
 
     var assignmentStaffList = [];
