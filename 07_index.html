@@ -539,9 +539,14 @@
             <button onclick="showView('shift-management')" class="bg-gray-500 text-white px-6 py-2 rounded-lg hover:bg-gray-600 transition">
               戻る
             </button>
-            <button id="btnConfirmCalendar" onclick="confirmAndRegisterCalendar()" class="hidden bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition font-semibold ml-auto">
-              確定してカレンダー登録
-            </button>
+            <div id="btnConfirmArea" class="hidden ml-auto flex gap-2">
+              <button id="btnConfirmOnly" onclick="confirmShiftsOnly()" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition font-semibold">
+                確定
+              </button>
+              <button id="btnConfirmCalendar" onclick="confirmAndRegisterCalendar()" class="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition font-semibold">
+                Googleカレンダー登録して確定
+              </button>
+            </div>
           </div>
 
           <!-- シフト編集テーブル -->
@@ -1921,7 +1926,7 @@
             renderShiftDailyStatsTable(result);
             renderShiftStatsTable(result);
             document.getElementById('shiftEditTableContainer').classList.remove('hidden');
-            document.getElementById('btnConfirmCalendar').classList.remove('hidden');
+            document.getElementById('btnConfirmArea').classList.remove('hidden');
             document.getElementById('diagnosticsPanel').classList.remove('hidden');
             document.getElementById('diagnosticsResult').classList.add('hidden');
             document.getElementById('diagnosticsEmpty').classList.remove('hidden');
@@ -1976,17 +1981,19 @@
             bgClass = 'bg-blue-50';
           }
 
-          // シフト選択プルダウン生成
-          let options = '<option value="休み">休み</option>';
+          // シフト選択プルダウン生成（SHIFT_YASUMIのシフト名を動的取得）
+          var yasumiEntry = shiftMasterList.find(function(sm) { return sm['シフトID'] === 'SHIFT_YASUMI'; });
+          var yasumiDisplayName = yasumiEntry ? yasumiEntry['シフト名'] : '休み';
+          let options = '<option value="' + yasumiDisplayName + '">' + yasumiDisplayName + '</option>';
           shiftMasterList.forEach(sm => {
-            if (sm['シフト名'] !== '休み') {
+            if (sm['シフトID'] !== 'SHIFT_YASUMI') {
               const selected = shift.shiftName === sm['シフト名'] ? 'selected' : '';
               options += `<option value="${sm['シフト名']}" ${selected}>${sm['シフト名']}</option>`;
             }
           });
           // 休みが選択されている場合
-          if (shift.shiftName === '休み' || !shift.shiftName) {
-            options = options.replace('value="休み"', 'value="休み" selected');
+          if (shift.shiftName === yasumiDisplayName || !shift.shiftName) {
+            options = options.replace('value="' + yasumiDisplayName + '"', 'value="' + yasumiDisplayName + '" selected');
           }
 
           bodyHtml += `<td class="px-1 py-1 ${bgClass}">
@@ -2001,25 +2008,90 @@
       tbody.innerHTML = bodyHtml;
     }
 
-    // シフトセルを更新
+    // シフトセルを更新（クライアントサイドで即座に反映）
     function updateShiftCell(staffName, year, month, day, shiftName) {
-      showLoading();
+      if (!shiftEditData) return;
+
+      // ローカルデータを即座に更新
+      var staffEntry = shiftEditData.staffShifts.find(function(s) { return s.name === staffName; });
+      if (staffEntry && staffEntry.shifts[day]) {
+        staffEntry.shifts[day].shiftName = shiftName;
+        // 時間情報も更新
+        var smEntry = shiftMasterList.find(function(sm) { return sm['シフト名'] === shiftName; });
+        if (smEntry) {
+          staffEntry.shifts[day].startTime = smEntry['開始時間'] || '';
+          staffEntry.shifts[day].endTime = smEntry['終了時間'] || '';
+        } else {
+          staffEntry.shifts[day].startTime = '';
+          staffEntry.shifts[day].endTime = '';
+        }
+      }
+
+      // 統計を再計算してテーブルを再描画
+      recalculateStatistics();
+      renderShiftDailyStatsTable(shiftEditData);
+      renderShiftStatsTable(shiftEditData);
+
+      // バックグラウンドでサーバーに保存（ローディング表示なし）
       google.script.run
         .withSuccessHandler(function(result) {
-          hideLoading();
-          if (result.success) {
-            // データを再読み込みして統計を更新
+          if (!result.success) {
+            console.error('シフト保存エラー:', result.message);
+            // 失敗時はフルリロードで整合性を回復
             loadShiftEditData();
-          } else {
-            alert('エラー: ' + result.message);
           }
         })
         .withFailureHandler(function(error) {
-          hideLoading();
-          alert('エラーが発生しました');
-          console.error(error);
+          console.error('シフト保存エラー:', error);
+          // 失敗時はフルリロードで整合性を回復
+          loadShiftEditData();
         })
         .apiUpdateShift(staffName, year, month, day, shiftName);
+    }
+
+    // クライアントサイドで統計を再計算
+    function recalculateStatistics() {
+      if (!shiftEditData || !shiftEditData.staffShifts) return;
+
+      var daysInMonth = shiftEditData.dateInfo.length;
+
+      // SHIFT_YASUMI と SHIFT_YAKIN の表示名を取得
+      var yasumiName = '';
+      var yakinName = '';
+      shiftMasterList.forEach(function(sm) {
+        if (sm['シフトID'] === 'SHIFT_YASUMI') yasumiName = sm['シフト名'];
+        if (sm['シフトID'] === 'SHIFT_YAKIN') yakinName = sm['シフト名'];
+      });
+      if (!yasumiName) yasumiName = '休み';
+      if (!yakinName) yakinName = '夜勤';
+
+      shiftEditData.statistics = shiftEditData.staffShifts.map(function(staff) {
+        var workDays = 0;
+        var restDays = 0;
+        var shiftCounts = {};
+
+        for (var d = 1; d <= daysInMonth; d++) {
+          var shift = staff.shifts[d];
+          var sn = (shift && shift.shiftName) ? shift.shiftName : yasumiName;
+
+          if (!shiftCounts[sn]) shiftCounts[sn] = 0;
+          shiftCounts[sn]++;
+
+          if (sn === yasumiName) {
+            restDays++;
+          } else {
+            workDays++;
+            if (sn === yakinName) workDays++;
+          }
+        }
+
+        return {
+          name: staff.name,
+          workDays: workDays,
+          restDays: restDays,
+          shiftCounts: shiftCounts
+        };
+      });
     }
 
     // 統計テーブルを描画
@@ -2031,7 +2103,7 @@
 
       // シフト種類一覧（マスタ順）
       var shiftNames = shiftMasterList.map(function(sm) { return sm['シフト名']; });
-      if (shiftNames.length === 0) shiftNames = ['早出', '日勤', '遅出', '夜勤', '休み'];
+      if (shiftNames.length === 0) shiftNames = shiftMasterList.map(function(sm) { return sm['シフト名']; });
 
       var dayNames = ['日','月','火','水','木','金','土'];
 
@@ -2055,7 +2127,8 @@
       data.staffShifts.forEach(function(staff) {
         data.dateInfo.forEach(function(d) {
           var shift = staff.shifts[d.day];
-          var name = shift ? shift.shiftName : '休み';
+          var yasumiDefault = (shiftMasterList.find(function(sm) { return sm['シフトID'] === 'SHIFT_YASUMI'; }) || {})['シフト名'] || '休み';
+          var name = shift ? (shift.shiftName || yasumiDefault) : yasumiDefault;
           if (!dailyCounts[name]) dailyCounts[name] = {};
           dailyCounts[name][d.day] = (dailyCounts[name][d.day] || 0) + 1;
         });
@@ -2115,6 +2188,39 @@
         bodyHtml += '</tr>';
       });
       tbody.innerHTML = bodyHtml;
+    }
+
+    // 確定のみ（カレンダー登録なし）
+    function confirmShiftsOnly() {
+      if (!shiftEditData) {
+        alert('先にシフトデータを表示してください');
+        return;
+      }
+
+      var year = shiftEditData.year;
+      var month = shiftEditData.month;
+      var group = shiftEditData.group;
+
+      if (!confirm('グループ' + group + 'の' + year + '年' + month + '月シフトを確定しますか？\n\n確定すると登録日時が記録されます。')) {
+        return;
+      }
+
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          if (result.success) {
+            alert(result.message);
+            loadShiftEditData();
+          } else {
+            alert('エラー: ' + result.message);
+          }
+        })
+        .withFailureHandler(function(error) {
+          hideLoading();
+          alert('エラーが発生しました: ' + (error.message || error));
+        })
+        .apiConfirmShifts(year, month, parseInt(group));
     }
 
     // 確定してカレンダー登録
