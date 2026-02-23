@@ -227,6 +227,43 @@ function exportSettingsToCSV(year, month) {
       console.log('シフトマスタをM_設定CSVに追加: ' + shiftMaster.length + '件');
     }
 
+    // 前月末シフトデータを追加（Python側で月初制約に使用）
+    // PREV_LAST_SHIFT_{staffId} = 前月末日のシフトキー
+    // PREV_2ND_LAST_SHIFT_{staffId} = 前月末日-1日のシフトキー
+    var prevYear = month === 1 ? year - 1 : year;
+    var prevMonth = month === 1 ? 12 : month - 1;
+    var prevMonthLastDay = new Date(prevYear, prevMonth, 0).getDate();
+    var prevMonthShifts = getConfirmedShiftsByMonth(prevYear, prevMonth);
+    var shiftNameResolution = buildShiftNameResolutionMap();
+    var shiftByName = getShiftMasterMap().byName;
+    var prevShiftCount = 0;
+
+    if (prevMonthShifts.length > 0) {
+      var allStaffForPrev = getActiveStaff();
+      allStaffForPrev.forEach(function(staff) {
+        var sid = staff['職員ID'];
+        if (!sid) return;
+
+        // 末日と末日-1日のシフトを検索
+        [prevMonthLastDay, prevMonthLastDay - 1].forEach(function(targetDay, idx) {
+          if (targetDay < 1) return;
+          var found = prevMonthShifts.find(function(s) {
+            return s['職員ID'] === sid &&
+              new Date(s['勤務開始日']).getDate() === targetDay;
+          });
+          var shiftKey = 'SHIFT_YASUMI'; // デフォルトは休み
+          if (found && found['シフト名']) {
+            var resolvedName = shiftNameResolution[String(found['シフト名'])] || String(found['シフト名']);
+            shiftKey = shiftByName[resolvedName] || 'SHIFT_YASUMI';
+          }
+          var prefix = idx === 0 ? 'PREV_LAST_SHIFT_' : 'PREV_2ND_LAST_SHIFT_';
+          settings.push([prefix + sid, shiftKey]);
+          prevShiftCount++;
+        });
+      });
+      console.log('前月末シフトデータをM_設定CSVに追加: ' + prevShiftCount + '件');
+    }
+
     // 勤務指定データを設定として追加（Python側で ASSIGN_ プレフィクスで識別）
     // キー形式: ASSIGN_職員ID_YYYYMMDD（職員ID管理。名前変更に影響されない）
     // 設定値はシフトID（キー）で出力。シフト名称変更があってもキーは不変

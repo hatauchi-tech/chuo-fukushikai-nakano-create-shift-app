@@ -565,6 +565,15 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
         suction_value = staff_info.get('喀痰吸引資格者', '')
         staff_has_suction[i] = suction_value in (True, 'TRUE', '有', 'あり')
 
+    # 前月末シフト情報を読み込み（月初の制約判定用）
+    prev_last_shift = {}     # staff_index → shift_key (前月末日)
+    prev_2nd_last_shift = {} # staff_index → shift_key (前月末日-1日)
+    for i, sid in enumerate(staff_ids):
+        prev_last = get_setting(settings_df, f'PREV_LAST_SHIFT_{sid}', 'SHIFT_YASUMI')
+        prev_2nd = get_setting(settings_df, f'PREV_2ND_LAST_SHIFT_{sid}', 'SHIFT_YASUMI')
+        prev_last_shift[i] = str(prev_last)
+        prev_2nd_last_shift[i] = str(prev_2nd)
+
     # 日曜日判定
     sundays = set()
     for d in range(num_days):
@@ -638,8 +647,13 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
         true_holidays = []
         for d in range(num_days):
             if d == 0:
-                # 月初日: 前日の夜勤情報がないため、休みなら公休扱い
-                true_holidays.append(shifts[(s, d, SHIFT_REST)])
+                # 月初日: 前月末が夜勤なら休みでも公休外（夜勤明け）
+                if prev_last_shift.get(s) == 'SHIFT_YAKIN':
+                    # 前月末が夜勤 → 1日の休みは夜勤明け、公休にカウントしない
+                    not_holiday = model.NewConstant(0)
+                    true_holidays.append(not_holiday)
+                else:
+                    true_holidays.append(shifts[(s, d, SHIFT_REST)])
             else:
                 # 公休 = 休み AND 前日が夜勤ではない
                 is_true_holiday = model.NewBoolVar(f'true_holiday_s{s}_d{d}')
@@ -665,6 +679,10 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
     # 制約4: インターバル（遅出→翌日早出は禁止）
     # ============================================
     for s in range(num_staff):
+        # 前月末が遅出 → 1日目に早出は禁止
+        if prev_last_shift.get(s) == 'SHIFT_OSODE':
+            model.Add(shifts[(s, 0, SHIFT_EARLY)] == 0)
+
         for d in range(num_days - 1):
             model.AddImplication(
                 shifts[(s, d, SHIFT_LATE)],
@@ -675,6 +693,15 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
     # 制約5: 夜勤明けルール（夜勤→休→休）
     # ============================================
     for s in range(num_staff):
+        # 前月末が夜勤 → 1日目・2日目は休み必須
+        if prev_last_shift.get(s) == 'SHIFT_YAKIN':
+            model.Add(shifts[(s, 0, SHIFT_REST)] == 1)
+            if num_days > 1:
+                model.Add(shifts[(s, 1, SHIFT_REST)] == 1)
+        # 前月末-1日が夜勤 → 1日目は休み必須
+        if prev_2nd_last_shift.get(s) == 'SHIFT_YAKIN':
+            model.Add(shifts[(s, 0, SHIFT_REST)] == 1)
+
         for d in range(num_days):
             if d + 1 < num_days:
                 model.AddImplication(
