@@ -1235,3 +1235,60 @@ function apiDeleteEvent(eventId) {
     return { success: result, message: result ? '削除しました' : 'データが見つかりません' };
   } catch (e) { return { success: false, message: e.message }; }
 }
+
+// ============================================
+// デバッグ用関数（GASエディタから直接実行可能）
+// ============================================
+
+/**
+ * M_職員の管理者ユーザーデータを確認
+ * GASエディタから実行 → ログで結果確認
+ */
+function debugCheckAdminUsers() {
+  var staff = getAllStaff();
+  console.log('=== M_職員 管理者チェック ===');
+  staff.forEach(function(s) {
+    console.log('氏名:', s['氏名'],
+                ', 役職: [' + s['役職'] + ']',
+                ', 型:', typeof s['役職'],
+                ', isAdmin:', isAdminRole(s['役職']),
+                ', 有効:', s['有効'],
+                ', ログインID:', s['ログインID']);
+  });
+  return staff.map(function(s) {
+    return { name: s['氏名'], role: s['役職'], isAdmin: isAdminRole(s['役職']) };
+  });
+}
+
+/**
+ * セッション保存・取得の動作確認
+ * GASエディタから実行 → ログで結果確認
+ */
+function debugSessionTest() {
+  console.log('=== セッション動作テスト ===');
+
+  // 現在のセッション確認
+  var current = getSession();
+  console.log('現在のセッション:', JSON.stringify(current));
+
+  // テスト保存
+  var testSession = { loginId: 'debug_test', staffId: 'DEBUG_001', name: 'テストユーザー', isAdmin: true };
+  setSession(testSession);
+  console.log('テストセッション保存完了');
+
+  // 取得確認
+  var loaded = getSession();
+  console.log('取得したセッション:', JSON.stringify(loaded));
+  console.log('isAdmin:', loaded ? loaded.isAdmin : 'null');
+
+  // クリーンアップ：元のセッションに戻す
+  if (current) {
+    setSession(current);
+    console.log('元のセッションに復元');
+  } else {
+    clearSession();
+    console.log('セッションクリア');
+  }
+
+  return { saved: testSession, loaded: loaded, match: JSON.stringify(testSession) === JSON.stringify(loaded) };
+}
