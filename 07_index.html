@@ -47,8 +47,11 @@
       <div class="container mx-auto px-4 py-4">
         <div class="flex justify-between items-center">
           <h1 class="text-2xl font-bold">📅 シフト管理システム</h1>
-          <div id="userInfo" class="hidden">
+          <div id="userInfo" class="hidden flex items-center">
             <span id="userName" class="mr-4"></span>
+            <button onclick="showView('manual')" class="bg-blue-500 hover:bg-blue-400 px-3 py-2 rounded transition mr-2 text-sm">
+              マニュアル
+            </button>
             <button onclick="logout()" class="bg-red-500 hover:bg-red-600 px-4 py-2 rounded transition">
               ログアウト
             </button>
@@ -90,6 +93,11 @@
             <button onclick="showView('shift-assignment')"
               class="nav-btn px-4 py-2 rounded hover:bg-blue-100 transition bg-purple-50 border border-purple-200">
               勤務指定
+            </button>
+          </li>
+          <li>
+            <button onclick="showView('manual')" class="nav-btn px-4 py-2 rounded hover:bg-blue-100 transition bg-gray-50 border border-gray-300">
+              マニュアル
             </button>
           </li>
         </ul>
@@ -723,6 +731,267 @@
         </div>
       </div>
 
+      <!-- マニュアル画面 -->
+      <div id="manualView" class="hidden">
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h2 class="text-2xl font-bold mb-6 text-gray-800">使い方マニュアル</h2>
+
+          <!-- マニュアル内ナビゲーション -->
+          <div class="flex flex-wrap gap-2 mb-6 pb-4 border-b">
+            <button onclick="showManualSection('manual-overview')" class="manual-nav-btn px-3 py-1 rounded bg-blue-100 text-blue-800 text-sm font-medium hover:bg-blue-200 transition">全体の流れ</button>
+            <button onclick="showManualSection('manual-staff')" class="manual-nav-btn px-3 py-1 rounded bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200 transition">職員向け</button>
+            <button onclick="showManualSection('manual-admin')" class="manual-nav-btn px-3 py-1 rounded bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200 transition">管理者向け</button>
+            <button onclick="showManualSection('manual-python')" class="manual-nav-btn px-3 py-1 rounded bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200 transition">シフト自動作成</button>
+            <button onclick="showManualSection('manual-rules')" class="manual-nav-btn px-3 py-1 rounded bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200 transition">シフトルール</button>
+            <button onclick="showManualSection('manual-faq')" class="manual-nav-btn px-3 py-1 rounded bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200 transition">よくある質問</button>
+          </div>
+
+          <!-- 全体の流れ -->
+          <div id="manual-overview" class="manual-section">
+            <h3 class="text-xl font-bold mb-4 text-blue-700">毎月のシフト作成の流れ</h3>
+            <div class="space-y-4">
+              <div class="flex items-start gap-4 p-4 bg-blue-50 rounded-lg">
+                <div class="flex-shrink-0 w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-lg">1</div>
+                <div>
+                  <p class="font-bold text-blue-800">職員が休み希望を入力</p>
+                  <p class="text-sm text-gray-600 mt-1">各職員がログインして、カレンダーから希望休の日を選びます。第1希望、第2希望...と優先順位をつけられます。</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-4 p-4 bg-blue-50 rounded-lg">
+                <div class="flex-shrink-0 w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-lg">2</div>
+                <div>
+                  <p class="font-bold text-blue-800">管理者が提出を締め切る</p>
+                  <p class="text-sm text-gray-600 mt-1">「シフト管理」画面から提出締切を設定します。締切後は職員が変更できなくなります。</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-4 p-4 bg-blue-50 rounded-lg">
+                <div class="flex-shrink-0 w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-lg">3</div>
+                <div>
+                  <p class="font-bold text-blue-800">管理者が勤務指定を入力（任意）</p>
+                  <p class="text-sm text-gray-600 mt-1">「勤務指定」画面で、特定の職員・日付のシフトを事前に固定できます（研修日など）。</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-4 p-4 bg-green-50 rounded-lg">
+                <div class="flex-shrink-0 w-10 h-10 bg-green-600 text-white rounded-full flex items-center justify-center font-bold text-lg">4</div>
+                <div>
+                  <p class="font-bold text-green-800">3種CSV出力 → Python自動計算</p>
+                  <p class="text-sm text-gray-600 mt-1">「シフト管理」画面から3種CSVを出力し、Google Colabで自動シフト作成を実行します。完了するとシステムに自動取込されます。</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-4 p-4 bg-orange-50 rounded-lg">
+                <div class="flex-shrink-0 w-10 h-10 bg-orange-600 text-white rounded-full flex items-center justify-center font-bold text-lg">5</div>
+                <div>
+                  <p class="font-bold text-orange-800">管理者がシフトを確認・修正</p>
+                  <p class="text-sm text-gray-600 mt-1">「シフト修正」画面でフィルターを使って内容を確認し、必要に応じて手修正します。統計情報やルールチェックで問題がないか確認できます。</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-4 p-4 bg-purple-50 rounded-lg">
+                <div class="flex-shrink-0 w-10 h-10 bg-purple-600 text-white rounded-full flex items-center justify-center font-bold text-lg">6</div>
+                <div>
+                  <p class="font-bold text-purple-800">確定（カレンダー登録は任意）</p>
+                  <p class="text-sm text-gray-600 mt-1">問題なければ「確定」ボタンでシフトを確定します。必要に応じて「Googleカレンダー登録して確定」で各職員のカレンダーにも反映できます。</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 職員向け -->
+          <div id="manual-staff" class="manual-section hidden">
+            <h3 class="text-xl font-bold mb-4 text-blue-700">職員向け：休み希望の出し方</h3>
+
+            <div class="space-y-6">
+              <div class="bg-gray-50 rounded-lg p-4">
+                <h4 class="font-bold text-gray-800 mb-2">1. ログインする</h4>
+                <p class="text-sm text-gray-600">管理者から配布されたログインIDとパスワードでログインしてください。</p>
+              </div>
+
+              <div class="bg-gray-50 rounded-lg p-4">
+                <h4 class="font-bold text-gray-800 mb-2">2. 対象月を選ぶ</h4>
+                <p class="text-sm text-gray-600">「休み希望提出」画面で対象の年月を選択します。</p>
+              </div>
+
+              <div class="bg-gray-50 rounded-lg p-4">
+                <h4 class="font-bold text-gray-800 mb-2">3. カレンダーから希望日をクリック</h4>
+                <p class="text-sm text-gray-600">カレンダー上の日付をクリックすると、クリックした順に第1希望、第2希望...と自動で番号がつきます。</p>
+                <ul class="text-sm text-gray-600 mt-2 list-disc list-inside space-y-1">
+                  <li>もう一度クリックすると解除されます</li>
+                  <li>公休日数分まで選択可能です（例: 9日分）</li>
+                  <li>第1希望が最も優先されます</li>
+                </ul>
+              </div>
+
+              <div class="bg-gray-50 rounded-lg p-4">
+                <h4 class="font-bold text-gray-800 mb-2">4. 保存する</h4>
+                <p class="text-sm text-gray-600">選択が終わったら「保存」ボタンを押してください。締切後は変更できなくなるので、早めに提出しましょう。</p>
+              </div>
+
+              <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <p class="text-sm text-yellow-800"><strong>ポイント：</strong>第1希望は最優先で反映されますが、他の職員と希望が重なった場合は調整されることがあります。第2希望以降は「できるだけ叶える」ソフト制約です。</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 管理者向け -->
+          <div id="manual-admin" class="manual-section hidden">
+            <h3 class="text-xl font-bold mb-4 text-blue-700">管理者向け：各画面の使い方</h3>
+
+            <div class="space-y-6">
+              <!-- シフト管理 -->
+              <div class="border border-green-200 rounded-lg p-4">
+                <h4 class="font-bold text-green-800 mb-2">シフト管理画面</h4>
+                <ul class="text-sm text-gray-600 space-y-2">
+                  <li><strong>提出締切設定：</strong>対象月の休み希望提出を「ロック（締切）」または「アンロック（再開）」します。</li>
+                  <li><strong>3種CSV一括出力：</strong>Python自動計算に必要な3ファイル（休み希望/職員/設定）をDriveに出力します。</li>
+                  <li><strong>シフト結果取込：</strong>Python計算後の結果CSVを手動取込します（通常はWebhookで自動取込されます）。</li>
+                  <li><strong>診断レポート：</strong>Python計算時の診断結果を確認できます。職員名やグループでフィルター可能です。</li>
+                </ul>
+              </div>
+
+              <!-- シフト修正 -->
+              <div class="border border-orange-200 rounded-lg p-4">
+                <h4 class="font-bold text-orange-800 mb-2">シフト修正画面</h4>
+                <ul class="text-sm text-gray-600 space-y-2">
+                  <li><strong>フィルター機能：</strong>グループ、ユニット、雇用形態、喀痰吸引資格者、勤務配慮の複数条件でフィルター可能。チェックボックスで即座に反映されます。</li>
+                  <li><strong>シフト修正：</strong>セルのプルダウンからシフトを変更できます。変更は即座に統計に反映されます（サーバー通信なし）。</li>
+                  <li><strong>黄色背景の行：</strong>喀痰吸引資格者です。夜勤に資格者が入っているか視覚的に確認できます。</li>
+                  <li><strong>統計テーブル：</strong>日別の人数集計と個人別の勤務日数・夜勤回数を自動計算して表示します。</li>
+                  <li><strong>確定ボタン：</strong>「確定」はシフトデータのみ保存。「Googleカレンダー登録して確定」は各職員のカレンダーにも自動登録します。</li>
+                </ul>
+              </div>
+
+              <!-- 職員マスタ -->
+              <div class="border border-blue-200 rounded-lg p-4">
+                <h4 class="font-bold text-blue-800 mb-2">職員マスタ管理画面</h4>
+                <ul class="text-sm text-gray-600 space-y-2">
+                  <li>職員の新規登録・編集・削除ができます。</li>
+                  <li><strong>グループ（1〜6）：</strong>シフト自動作成はグループ単位で行います。</li>
+                  <li><strong>喀痰吸引資格者：</strong>ONにすると、法定要件として毎日の配置チェック対象になります。</li>
+                  <li><strong>勤務配慮：</strong>ONにすると、夜勤が免除されます。</li>
+                  <li><strong>有効：</strong>OFFにするとログイン不可＆シフト作成対象外になります。</li>
+                </ul>
+              </div>
+
+              <!-- シフトマスタ -->
+              <div class="border border-blue-200 rounded-lg p-4">
+                <h4 class="font-bold text-blue-800 mb-2">シフトマスタ管理画面</h4>
+                <p class="text-sm text-gray-600">シフト種別（早出/日勤/遅出/夜勤/休み）の開始・終了時間を管理します。シフト名の表示はここで設定した名前がシステム全体に反映されます。</p>
+              </div>
+
+              <!-- 勤務指定 -->
+              <div class="border border-purple-200 rounded-lg p-4">
+                <h4 class="font-bold text-purple-800 mb-2">勤務指定画面</h4>
+                <ul class="text-sm text-gray-600 space-y-2">
+                  <li>自動シフト作成前に、特定の職員・日付のシフトを固定します。</li>
+                  <li>研修日や会議など、あらかじめ決まっている勤務を指定する際に使います。</li>
+                  <li>指定した内容は3種CSV出力に含まれ、Python計算で考慮されます。</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- シフト自動作成 -->
+          <div id="manual-python" class="manual-section hidden">
+            <h3 class="text-xl font-bold mb-4 text-blue-700">シフト自動作成（Python/Colab）</h3>
+
+            <div class="space-y-6">
+              <div class="bg-gray-50 rounded-lg p-4">
+                <h4 class="font-bold text-gray-800 mb-2">実行手順</h4>
+                <ol class="text-sm text-gray-600 list-decimal list-inside space-y-2">
+                  <li>Webアプリの「シフト管理」画面で「3種CSV一括出力」を実行</li>
+                  <li>Google Colabのノートブックを開く</li>
+                  <li>対象年月を設定して実行（1セルで完結）</li>
+                  <li>完了すると自動でWebアプリに取り込まれます</li>
+                </ol>
+              </div>
+
+              <div class="bg-gray-50 rounded-lg p-4">
+                <h4 class="font-bold text-gray-800 mb-2">自動計算の仕組み</h4>
+                <p class="text-sm text-gray-600">OR-Tools CP-SAT Solver（Google製の数理最適化エンジン）を使用して、全ての制約条件を満たすシフトを自動計算します。グループ別に最適化し、失敗した場合は自動で制約を緩和してリトライします。</p>
+              </div>
+
+              <div class="bg-gray-50 rounded-lg p-4">
+                <h4 class="font-bold text-gray-800 mb-2">診断レポート</h4>
+                <p class="text-sm text-gray-600">計算結果と一緒に診断レポート（JSON）が保存されます。「シフト管理」画面の診断レポートセクションで内容を確認できます。職員名やグループでフィルターして、問題点を素早く見つけることができます。</p>
+              </div>
+
+              <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <p class="text-sm text-yellow-800"><strong>注意：</strong>自動計算の結果は「高精度なたたき台」です。必ず「シフト修正」画面で確認し、現場の事情に合わせて手修正してから確定してください。</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- シフトルール -->
+          <div id="manual-rules" class="manual-section hidden">
+            <h3 class="text-xl font-bold mb-4 text-blue-700">シフトルール一覧</h3>
+
+            <div class="space-y-4">
+              <div class="overflow-x-auto">
+                <table class="min-w-full text-sm border-collapse">
+                  <thead>
+                    <tr class="bg-gray-100">
+                      <th class="border px-3 py-2 text-left">ルール</th>
+                      <th class="border px-3 py-2 text-left">内容</th>
+                      <th class="border px-3 py-2 text-left">優先度</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td class="border px-3 py-2 font-medium">公休数の遵守</td><td class="border px-3 py-2">月の暦日数 - 公休数 = 勤務日数。必ず守ります。</td><td class="border px-3 py-2 text-red-600 font-bold">必須</td></tr>
+                    <tr><td class="border px-3 py-2 font-medium">連勤制限</td><td class="border px-3 py-2">連続5日まで（6連勤以上は不可）</td><td class="border px-3 py-2 text-red-600 font-bold">必須</td></tr>
+                    <tr><td class="border px-3 py-2 font-medium">夜勤明けルール</td><td class="border px-3 py-2">夜勤の翌日は「休み」、翌々日も「休み」（夜勤→休→休）</td><td class="border px-3 py-2 text-red-600 font-bold">必須</td></tr>
+                    <tr><td class="border px-3 py-2 font-medium">勤務間インターバル</td><td class="border px-3 py-2">遅出→翌日早出は禁止</td><td class="border px-3 py-2 text-red-600 font-bold">必須</td></tr>
+                    <tr><td class="border px-3 py-2 font-medium">勤務配慮</td><td class="border px-3 py-2">勤務配慮ありの職員は夜勤免除</td><td class="border px-3 py-2 text-red-600 font-bold">必須</td></tr>
+                    <tr><td class="border px-3 py-2 font-medium">資格者配置</td><td class="border px-3 py-2">施設全体で毎日1名以上の喀痰吸引資格者を配置（法的要件）</td><td class="border px-3 py-2 text-red-600 font-bold">必須</td></tr>
+                    <tr><td class="border px-3 py-2 font-medium">第1休み希望</td><td class="border px-3 py-2">第1希望は必ず休みにする</td><td class="border px-3 py-2 text-red-600 font-bold">必須</td></tr>
+                    <tr class="bg-yellow-50"><td class="border px-3 py-2 font-medium">最低人数</td><td class="border px-3 py-2">グループ別：早出2名/日勤1名（日曜0可）/遅出1名/夜勤1名 以上</td><td class="border px-3 py-2 text-yellow-700">できるだけ</td></tr>
+                    <tr class="bg-yellow-50"><td class="border px-3 py-2 font-medium">第2希望以降の休み</td><td class="border px-3 py-2">できるだけ叶えるが、他の制約と衝突する場合は調整される</td><td class="border px-3 py-2 text-yellow-700">できるだけ</td></tr>
+                    <tr class="bg-yellow-50"><td class="border px-3 py-2 font-medium">夜勤の資格者配置</td><td class="border px-3 py-2">夜勤にも施設全体で1名以上の資格者を配置</td><td class="border px-3 py-2 text-yellow-700">できるだけ</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 class="font-bold text-blue-800 mb-2">夜勤の休日カウントについて</h4>
+                <p class="text-sm text-gray-600">夜勤は日をまたぐため、シフト表では2日分（当日「夜勤」＋翌日「休み」）として表示されます。ただし休日カウントとしては、夜勤明けの翌日のみが実質的な公休1日となります。</p>
+                <p class="text-sm text-gray-600 mt-1">例: 21日「夜勤」→ 22日「休み」→ 23日「休み」の場合、公休は1日としてカウント。</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- よくある質問 -->
+          <div id="manual-faq" class="manual-section hidden">
+            <h3 class="text-xl font-bold mb-4 text-blue-700">よくある質問</h3>
+
+            <div class="space-y-4">
+              <div class="border rounded-lg p-4">
+                <p class="font-bold text-gray-800">Q. 休み希望を出し忘れました</p>
+                <p class="text-sm text-gray-600 mt-1">A. 締切前であれば、いつでもログインして入力・修正できます。締切後は管理者に相談してください。</p>
+              </div>
+              <div class="border rounded-lg p-4">
+                <p class="font-bold text-gray-800">Q. 希望が通らないことはありますか？</p>
+                <p class="text-sm text-gray-600 mt-1">A. 第1希望は必ず反映されます。第2希望以降は、他の職員と重なった場合に調整されることがあります。</p>
+              </div>
+              <div class="border rounded-lg p-4">
+                <p class="font-bold text-gray-800">Q. シフト修正画面の黄色い行は何ですか？</p>
+                <p class="text-sm text-gray-600 mt-1">A. 喀痰吸引資格者の行です。夜勤に資格者が入っているか視覚的に確認するための目印です。</p>
+              </div>
+              <div class="border rounded-lg p-4">
+                <p class="font-bold text-gray-800">Q. 自動計算が失敗（INFEASIBLE）になりました</p>
+                <p class="text-sm text-gray-600 mt-1">A. 制約を全て満たすシフトが組めない状態です。診断レポートで原因を確認してください。よくある原因: グループの人数不足、夜勤可能者不足、休み希望の集中。</p>
+              </div>
+              <div class="border rounded-lg p-4">
+                <p class="font-bold text-gray-800">Q. カレンダー登録せずに確定できますか？</p>
+                <p class="text-sm text-gray-600 mt-1">A. はい。「確定」ボタンを使えば、Googleカレンダーへの登録なしでシフトを確定できます。</p>
+              </div>
+              <div class="border rounded-lg p-4">
+                <p class="font-bold text-gray-800">Q. フィルターで絞り込んだ時、他の職員のデータは消えますか？</p>
+                <p class="text-sm text-gray-600 mt-1">A. いいえ。フィルターは表示の絞り込みだけです。編集した内容も保持されます。全員チェックを戻せば全職員が表示されます。</p>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
     </main>
   </div>
 
@@ -773,12 +1042,13 @@
         'shift-master': 'shiftMasterView',
         'shift-management': 'shiftManagementView',
         'shift-edit': 'shiftEditView',
-        'shift-assignment': 'shiftAssignmentView'
+        'shift-assignment': 'shiftAssignmentView',
+        'manual': 'manualView'
       };
 
       const viewId = viewIdMap[viewName] || viewName;
 
-      const views = ['loginView', 'holidayRequestView', 'staffMasterView', 'shiftMasterView', 'shiftManagementView', 'shiftEditView', 'shiftAssignmentView'];
+      const views = ['loginView', 'holidayRequestView', 'staffMasterView', 'shiftMasterView', 'shiftManagementView', 'shiftEditView', 'shiftAssignmentView', 'manualView'];
       views.forEach(v => {
         document.getElementById(v).classList.add('hidden');
       });
@@ -811,6 +1081,25 @@
         } else if (viewId === 'shiftAssignmentView') {
           initShiftAssignmentView();
         }
+      }
+    }
+
+    // マニュアル内セクション切替
+    function showManualSection(sectionId) {
+      document.querySelectorAll('.manual-section').forEach(function(el) {
+        el.classList.add('hidden');
+      });
+      document.getElementById(sectionId).classList.remove('hidden');
+      document.querySelectorAll('.manual-nav-btn').forEach(function(btn) {
+        btn.classList.remove('bg-blue-100', 'text-blue-800');
+        btn.classList.add('bg-gray-100', 'text-gray-700');
+      });
+      var btns = document.querySelectorAll('.manual-nav-btn');
+      var sectionMap = ['manual-overview', 'manual-staff', 'manual-admin', 'manual-python', 'manual-rules', 'manual-faq'];
+      var idx = sectionMap.indexOf(sectionId);
+      if (idx >= 0 && btns[idx]) {
+        btns[idx].classList.remove('bg-gray-100', 'text-gray-700');
+        btns[idx].classList.add('bg-blue-100', 'text-blue-800');
       }
     }
 
