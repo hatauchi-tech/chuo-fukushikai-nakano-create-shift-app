@@ -1186,28 +1186,26 @@ def main():
         # [5/6] CSV保存 + 診断レポート保存
         print('\n[5/6] CSV保存 + 診断レポート保存')
 
-        suffix = ''
-        has_failure = any(
+        is_partial = any(
             not r.get('success', True) and not r.get('relaxed_success', False)
             for r in diagnostic.group_results.values()
         )
-        if has_failure:
-            suffix = '_partial'
-            print('  * 部分的な結果として保存します')
+        if is_partial:
+            print('  * 部分的な結果が含まれています（ファイル名は通常通り）')
 
-        file_id = save_result_to_drive(result_df, TARGET_YEAR, TARGET_MONTH, suffix)
+        file_id = save_result_to_drive(result_df, TARGET_YEAR, TARGET_MONTH)
         save_diagnostic_report(diagnostic, TARGET_YEAR, TARGET_MONTH)
 
         # [6/6] Webhook通知（完全成功時のみ）
         print('\n[6/6] Webhook通知')
-        if not suffix:
+        if not is_partial:
             webhook_result = notify_gas_webhook(file_id, TARGET_YEAR, TARGET_MONTH)
         else:
             print('  * 部分的な結果のためWebhook送信をスキップ')
             webhook_result = {'success': True, 'message': 'スキップ（部分結果）'}
 
         print(f'\n{"="*60}')
-        if webhook_result.get('success') and not suffix:
+        if webhook_result.get('success') and not is_partial:
             print('すべての処理が完了しました！')
             print(f'\n次のステップ:')
             print(f'  1. GASアプリの「シフト修正」画面を開く')
