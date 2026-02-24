@@ -14,7 +14,7 @@
 - 資格者配置: 全日に喀痰吸引資格者を施設全体で最低1名配置（法的要件）
   → グループ単独ではなく全グループ合算で判定。最適化後に施設横断で検証。
   → 夜勤帯も資格者最低1名を優遇（ソフト制約）
-- グループ別最低人数: 早出2名、日勤1名（日曜0可）、遅出1名、夜勤1名（ソフト制約）
+- グループ別最低人数: 早出2名、日勤1名（日曜0可）、遅出1名、夜勤1名（ハード制約）
 - 勤務配慮ありのスタッフは夜勤免除
 - 事前勤務指定（ASSIGN_職員ID_YYYYMMDD）をハード制約として固定
 """
@@ -725,45 +725,42 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
                 model.Add(shifts[(s, d, SHIFT_NIGHT)] == 0)
 
     # ============================================
-    # 制約7: グループ別最低人数（ソフト制約）
-    # 最低人数を下回るとペナルティ。公休数がハード制約なので人数不足は許容。
+    # 制約7: グループ別最低人数（ハード制約）
+    # 各シフトに最低人数を必ず配置する。
+    # 緩和モード時は早出1名、日勤0名に緩和。
     # ============================================
-    min_early = MIN_STAFF_REQUIREMENTS[SHIFT_KEY_HAYADE]
-    min_day   = MIN_STAFF_REQUIREMENTS[SHIFT_KEY_NIKKIN]
-    min_late  = MIN_STAFF_REQUIREMENTS[SHIFT_KEY_OSODE]
-    min_night = MIN_STAFF_REQUIREMENTS[SHIFT_KEY_YAKIN]
-
-    min_staff_penalties = []
+    if relaxed:
+        min_early = max(1, MIN_STAFF_REQUIREMENTS[SHIFT_KEY_HAYADE] - 1)
+        min_day   = 0
+        min_late  = MIN_STAFF_REQUIREMENTS[SHIFT_KEY_OSODE]
+        min_night = MIN_STAFF_REQUIREMENTS[SHIFT_KEY_YAKIN]
+    else:
+        min_early = MIN_STAFF_REQUIREMENTS[SHIFT_KEY_HAYADE]
+        min_day   = MIN_STAFF_REQUIREMENTS[SHIFT_KEY_NIKKIN]
+        min_late  = MIN_STAFF_REQUIREMENTS[SHIFT_KEY_OSODE]
+        min_night = MIN_STAFF_REQUIREMENTS[SHIFT_KEY_YAKIN]
 
     for d in range(num_days):
         # 早出
-        early_short = model.NewIntVar(0, min_early, f'early_short_d{d}')
         model.Add(
-            sum(shifts[(s, d, SHIFT_EARLY)] for s in range(num_staff)) + early_short >= min_early
+            sum(shifts[(s, d, SHIFT_EARLY)] for s in range(num_staff)) >= min_early
         )
-        min_staff_penalties.append(early_short * 50)
 
         # 日勤（日曜は0でも可）
         if d not in sundays:
-            day_short = model.NewIntVar(0, min_day, f'day_short_d{d}')
             model.Add(
-                sum(shifts[(s, d, SHIFT_DAY)] for s in range(num_staff)) + day_short >= min_day
+                sum(shifts[(s, d, SHIFT_DAY)] for s in range(num_staff)) >= min_day
             )
-            min_staff_penalties.append(day_short * 50)
 
         # 遅出
-        late_short = model.NewIntVar(0, min_late, f'late_short_d{d}')
         model.Add(
-            sum(shifts[(s, d, SHIFT_LATE)] for s in range(num_staff)) + late_short >= min_late
+            sum(shifts[(s, d, SHIFT_LATE)] for s in range(num_staff)) >= min_late
         )
-        min_staff_penalties.append(late_short * 50)
 
         # 夜勤
-        night_short = model.NewIntVar(0, min_night, f'night_short_d{d}')
         model.Add(
-            sum(shifts[(s, d, SHIFT_NIGHT)] for s in range(num_staff)) + night_short >= min_night
+            sum(shifts[(s, d, SHIFT_NIGHT)] for s in range(num_staff)) >= min_night
         )
-        min_staff_penalties.append(night_short * 50)
 
     # ============================================
     # 制約8: 喀痰吸引資格者配置（ソフト制約・グループ単位のインセンティブ）
@@ -817,8 +814,7 @@ def optimize_single_group(group, group_staff, group_holiday_df, settings_df,
     # ソフト制約: 休み希望違反ペナルティ
     objective_terms.extend(soft_holiday_penalties)
 
-    # ソフト制約: 最低人数不足ペナルティ
-    objective_terms.extend(min_staff_penalties)
+    # 制約7（最低人数）はハード制約に変更済み
 
     # ソフト制約: 資格者不在ペナルティ
     objective_terms.extend(suction_penalties)
